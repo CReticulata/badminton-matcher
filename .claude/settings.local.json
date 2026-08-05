@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Read(//Users/creticulata/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/1.2.0/skills/productivity/grill-me/**)",
-      "Read(//Users/creticulata/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/1.2.0/skills/productivity/**)"
+      "Read(//Users/creticulata/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/1.2.0/skills/productivity/**)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm build *)"
     ]
   }
 }

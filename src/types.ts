@@ -21,6 +21,21 @@ export interface RatingOverride {
   at: number
 }
 
+/**
+ * 固化基準事件：清除歷史紀錄時「保留強度分數」用。
+ * 與 RatingOverride 不同——override 只重設 RD（rating/vol 沿用既有邏輯），
+ * baseline 則是完整覆寫 rating／rd／vol 三者，相當於「重新設定球員當下的完整狀態」，
+ * 讓刪除原始比賽紀錄後，全量重算仍能還原清除前的狀態。
+ */
+export interface RatingBaseline {
+  id: string
+  playerId: string
+  rating: number
+  rd: number
+  vol: number
+  at: number
+}
+
 export interface Match {
   id: string
   sessionId: string
@@ -53,6 +68,7 @@ export interface AppData {
   sessions: Session[]
   matches: Match[]
   overrides: RatingOverride[]
+  baselines: RatingBaseline[]
 }
 
 /** 分組結果 */

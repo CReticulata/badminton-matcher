@@ -33,12 +33,13 @@ function loadData(): AppData {
         sessions: d.sessions ?? [],
         matches: d.matches ?? [],
         overrides: d.overrides ?? [],
+        baselines: d.baselines ?? [],
       }
     }
   } catch {
     /* 壞資料視為空 */
   }
-  return { players: [], sessions: [], matches: [], overrides: [] }
+  return { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
 }
 
 export const data = reactive<AppData>(loadData())
@@ -166,6 +167,7 @@ export function removePlayer(id: string): boolean {
   if (used) return false
   data.players = data.players.filter((p) => p.id !== id) as typeof data.players
   data.overrides = data.overrides.filter((o) => o.playerId !== id) as typeof data.overrides
+  data.baselines = data.baselines.filter((b) => b.playerId !== id) as typeof data.baselines
   for (const s of data.sessions) {
     s.presentIds = s.presentIds.filter((x) => x !== id)
     s.leftIds = s.leftIds.filter((x) => x !== id)
@@ -329,7 +331,7 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
 // ---------- 歷史修改（全量重算） ----------
 
 function runFullRecalc() {
-  const states = recalcAll(data.players, data.matches, data.overrides)
+  const states = recalcAll(data.players, data.matches, data.overrides, data.baselines)
   for (const p of data.players) {
     const s = states.get(p.id)
     if (s) {
@@ -358,10 +360,72 @@ export function deleteMatch(matchId: string) {
   runFullRecalc()
 }
 
+// ---------- 清除歷史紀錄 ----------
+
+/**
+ * 為「全體球員」固化清除前的目前狀態，供之後 recalcAll 重播還原（保留強度分數用）。
+ * 必須全員固化：只固化參與者會讓其他場次交手過的第三方在重算時被連動改分。
+ * 代價是基準前的比賽視為已結算——之後修改早於基準的比分不再影響強度（UI 有標示）。
+ */
+function baselineAllPlayers() {
+  const now = Date.now()
+  for (const p of data.players) {
+    data.baselines.push({
+      id: genId(),
+      playerId: p.id,
+      rating: p.rating,
+      rd: p.rd,
+      vol: p.vol,
+      at: now,
+    })
+  }
+}
+
+/** 最新的固化基準時間點；早於此時間的比賽修改不再影響強度分數 */
+export const latestBaselineAt = computed(() =>
+  data.baselines.reduce((max, b) => Math.max(max, b.at), 0),
+)
+
+/** 清除單一場次的比賽紀錄。已結束場次連場次一併刪除；進行中場次僅刪 matches，保留場次與出席名單。 */
+export function clearSession(sessionId: string, resetRatings: boolean) {
+  const session = data.sessions.find((s) => s.id === sessionId)
+  if (!session) return
+
+  if (!resetRatings) baselineAllPlayers()
+
+  data.matches = data.matches.filter((m) => m.sessionId !== sessionId) as typeof data.matches
+  if (!session.active) {
+    data.sessions = data.sessions.filter((s) => s.id !== sessionId) as typeof data.sessions
+  }
+  runFullRecalc()
+}
+
+/** 清除全部歷史紀錄：所有比賽紀錄與已結束場次刪除；進行中場次保留（統計歸零）。 */
+export function clearAllHistory(resetRatings: boolean) {
+  if (!resetRatings) baselineAllPlayers()
+
+  data.matches = [] as typeof data.matches
+  data.sessions = data.sessions.filter((s) => s.active) as typeof data.sessions
+  runFullRecalc()
+}
+
 // ---------- CSV ----------
 
 export function exportCsvText(): string {
   return exportCsv(data)
+}
+
+/** 觸發下載目前資料的 CSV 備份（參賽者頁「匯出 CSV」與清除歷史 modal「先匯出 CSV 備份」共用） */
+export function downloadCsvBackup() {
+  const csv = exportCsvText()
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const d = new Date()
+  a.href = url
+  a.download = `badminton-matcher-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 /** 覆蓋還原；格式錯誤時 throw */
@@ -371,6 +435,7 @@ export function importCsvText(text: string) {
   data.sessions = parsed.sessions as typeof data.sessions
   data.matches = parsed.matches as typeof data.matches
   data.overrides = parsed.overrides as typeof data.overrides
+  data.baselines = parsed.baselines as typeof data.baselines
   ui.pending = null
   ui.live = null
   ui.scoring = false

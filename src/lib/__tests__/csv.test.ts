@@ -50,6 +50,9 @@ const sample: AppData = {
     },
   ],
   overrides: [{ id: 'o1', playerId: 'p1', rating: 1800, at: 2500 }],
+  baselines: [
+    { id: 'b1', playerId: 'p2', rating: 1495.5, rd: 200.25, vol: 0.059, at: 3500 },
+  ],
 }
 
 describe('CSV 匯出/匯入', () => {

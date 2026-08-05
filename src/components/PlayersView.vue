@@ -4,7 +4,7 @@ import {
   INITIAL_LEVELS,
   addPlayer,
   data,
-  exportCsvText,
+  downloadCsvBackup,
   importCsvText,
   overrideRating,
   removePlayer,
@@ -47,15 +47,7 @@ function onDelete(id: string, name: string) {
 }
 
 function onExport() {
-  const csv = exportCsvText();
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const d = new Date();
-  a.href = url;
-  a.download = `badminton-matcher-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCsvBackup();
 }
 
 const fileInput = ref<HTMLInputElement>();

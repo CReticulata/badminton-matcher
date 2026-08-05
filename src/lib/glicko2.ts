@@ -4,7 +4,7 @@
  * - 雙打映射：每位球員以「對方兩人 rating/RD 平均」為單一虛擬對手更新。
  * - tau = 0.5。
  */
-import type { Match, Player, RatingOverride } from '../types'
+import type { Match, Player, RatingBaseline, RatingOverride } from '../types'
 
 export const TAU = 0.5
 export const DEFAULT_RATING = 1500
@@ -170,6 +170,7 @@ export function recalcAll(
   players: readonly Pick<Player, 'id' | 'initialRating'>[],
   matches: readonly Match[],
   overrides: readonly RatingOverride[] = [],
+  baselines: readonly RatingBaseline[] = [],
 ): Map<string, GlickoState> {
   const states = new Map<string, GlickoState>()
   for (const p of players) {
@@ -179,9 +180,11 @@ export function recalcAll(
   type Event =
     | { at: number; kind: 'match'; match: Match }
     | { at: number; kind: 'override'; override: RatingOverride }
+    | { at: number; kind: 'baseline'; baseline: RatingBaseline }
   const events: Event[] = [
     ...matches.map((m) => ({ at: m.at, kind: 'match' as const, match: m })),
     ...overrides.map((o) => ({ at: o.at, kind: 'override' as const, override: o })),
+    ...baselines.map((b) => ({ at: b.at, kind: 'baseline' as const, baseline: b })),
   ].sort((a, b) => a.at - b.at)
 
   for (const ev of events) {
@@ -191,6 +194,15 @@ export function recalcAll(
           rating: ev.override.rating,
           rd: OVERRIDE_RD,
           vol: DEFAULT_VOL,
+        })
+      }
+    } else if (ev.kind === 'baseline') {
+      // 固化基準：完整覆寫 rating／rd／vol，還原清除歷史前的狀態
+      if (states.has(ev.baseline.playerId)) {
+        states.set(ev.baseline.playerId, {
+          rating: ev.baseline.rating,
+          rd: ev.baseline.rd,
+          vol: ev.baseline.vol,
         })
       }
     } else {

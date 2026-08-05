@@ -1,9 +1,9 @@
 /**
  * 單一 CSV 檔匯出/匯入（覆蓋還原語意，換手機/備份用）。
- * 檔內以 [players] / [overrides] / [sessions] / [matches] 區段分隔。
+ * 檔內以 [players] / [overrides] / [baselines] / [sessions] / [matches] 區段分隔。
  * 陣列欄位以 "|" 連接。
  */
-import type { AppData, Match, Mode, Player, RatingOverride, Session } from '../types'
+import type { AppData, Match, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'
 
 function esc(v: string | number | boolean): string {
   const s = String(v)
@@ -62,6 +62,7 @@ const splitIds = (s: string) => (s === '' ? [] : s.split('|'))
 
 const PLAYER_HEADER = ['id', 'name', 'color', 'rating', 'rd', 'vol', 'initialRating', 'createdAt']
 const OVERRIDE_HEADER = ['id', 'playerId', 'rating', 'at']
+const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
 const SESSION_HEADER = ['id', 'name', 'startedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active']
 const MATCH_HEADER = ['id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters']
 
@@ -76,6 +77,10 @@ export function exportCsv(data: AppData): string {
   lines.push('[overrides]', OVERRIDE_HEADER.join(','))
   for (const o of data.overrides) {
     lines.push([o.id, o.playerId, o.rating, o.at].map(esc).join(','))
+  }
+  lines.push('[baselines]', BASELINE_HEADER.join(','))
+  for (const b of data.baselines) {
+    lines.push([b.id, b.playerId, b.rating, b.rd, b.vol, b.at].map(esc).join(','))
   }
   lines.push('[sessions]', SESSION_HEADER.join(','))
   for (const s of data.sessions) {
@@ -98,7 +103,7 @@ export function exportCsv(data: AppData): string {
 
 /** 解析匯入的 CSV；格式錯誤時 throw Error（訊息為繁中） */
 export function importCsv(text: string): AppData {
-  const data: AppData = { players: [], sessions: [], matches: [], overrides: [] }
+  const data: AppData = { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
   let section: string | null = null
   let header: string[] | null = null
 
@@ -149,6 +154,16 @@ export function importCsv(text: string): AppData {
         at: num(row.at, 'at'),
       }
       data.overrides.push(o)
+    } else if (section === 'baselines') {
+      const b: RatingBaseline = {
+        id: row.id ?? '',
+        playerId: row.playerId ?? '',
+        rating: num(row.rating, 'rating'),
+        rd: num(row.rd, 'rd'),
+        vol: num(row.vol, 'vol'),
+        at: num(row.at, 'at'),
+      }
+      data.baselines.push(b)
     } else if (section === 'sessions') {
       const s: Session = {
         id: row.id ?? '',

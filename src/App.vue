@@ -1,24 +1,26 @@
 <script setup lang="ts">
-import { ui } from './store'
-import SessionView from './components/SessionView.vue'
-import PlayersView from './components/PlayersView.vue'
-import HistoryView from './components/HistoryView.vue'
-import PreviewView from './components/PreviewView.vue'
-import MatchDisplay from './components/MatchDisplay.vue'
-import ScoreInput from './components/ScoreInput.vue'
+import { ui } from "./store";
+import SessionView from "./components/SessionView.vue";
+import PlayersView from "./components/PlayersView.vue";
+import HistoryView from "./components/HistoryView.vue";
+import PreviewView from "./components/PreviewView.vue";
+import MatchDisplay from "./components/MatchDisplay.vue";
+import ScoreInput from "./components/ScoreInput.vue";
 
 const tabs = [
-  { key: 'session', label: '場次' },
-  { key: 'players', label: '參賽者' },
-  { key: 'history', label: '歷史' },
-] as const
+  { key: "session", label: "場次" },
+  { key: "players", label: "參賽者" },
+  { key: "history", label: "歷史" },
+] as const;
 </script>
 
 <template>
   <div class="min-h-svh bg-slate-100">
-    <header class="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <header
+      class="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur"
+    >
       <div class="mx-auto flex max-w-2xl items-center px-4 py-2">
-        <h1 class="text-base font-bold text-teal-800">羽球隊伍產生器</h1>
+        <h1 class="text-base font-bold text-teal-800">羽球對戰分配機</h1>
       </div>
     </header>
 

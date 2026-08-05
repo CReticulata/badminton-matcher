@@ -6,7 +6,7 @@
 
 ## 關鍵事實
 - 開發/測試/build 指令：`pnpm dev` / `pnpm test`（vitest run）/ `pnpm build`（vue-tsc -b && vite build）
-- 分支與發版慣例：無 git repo（尚未 init）；預計部署 Cloudflare Pages `badminton-matcher.creticulata.dev`（部署前需使用者確認）
+- 分支與發版：GitHub `CReticulata/badminton-matcher`，Cloudflare Pages Git 整合——push `main` 即自動建置部署（build: `pnpm build`、output: `dist`），正式站 https://badminton-matcher.creticulata.dev（2026-08-06 上線）
 - 演算法純函式在 `src/lib/`（glicko2.ts、matchmaking.ts、csv.ts、color.ts），改動必須跑 vitest；Glicko-2 為自行實作（tau 0.5，論文範例有測試鎖住），禁用第三方 glicko 套件
 - 全域 store 在 `src/store.ts`（Vue reactivity，非 pinia）；UI 流程用 `ui.view`＋overlay 狀態，無 vue-router
 - 歷史修改/刪除後必呼叫全量重算（`recalcAll`，含手動覆寫事件重播），保證 rating 與紀錄一致

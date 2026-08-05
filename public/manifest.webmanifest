@@ -1,5 +1,5 @@
 {
-  "name": "羽球雙打隊伍產生器",
+  "name": "羽球對戰分配機",
   "short_name": "羽球分組",
   "description": "羽球雙打/單打自動分組、Glicko-2 強度計算與公平輪替",
   "lang": "zh-Hant",
