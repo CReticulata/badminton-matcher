@@ -8,7 +8,7 @@ export interface Player {
   rating: number
   rd: number
   vol: number
-  /** 建立時選擇的初始 rating（新手/中等/較強），全量重算的起點 */
+  /** 建立時依 1–18 級選擇的初始 rating，全量重算的起點 */
   initialRating: number
   createdAt: number
 }

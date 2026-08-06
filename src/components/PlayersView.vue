@@ -15,12 +15,14 @@ import {
 import { textColorOn } from "../lib/color";
 
 const newName = ref("");
-const newLevel = ref(1500);
+const newRating = ref<number>(
+  INITIAL_LEVELS.find((level) => level.level === 8)?.rating ?? 1500,
+);
 const message = ref("");
 
 function onAdd() {
   if (!newName.value.trim()) return;
-  addPlayer(newName.value, newLevel.value);
+  addPlayer(newName.value, newRating.value);
   newName.value = "";
 }
 
@@ -107,23 +109,23 @@ async function onImportFile(e: Event) {
     </p>
 
     <!-- 新增 -->
-    <form class="mb-4 flex gap-2" @submit.prevent="onAdd">
+    <form class="mb-4 flex flex-col gap-2 sm:flex-row" @submit.prevent="onAdd">
       <input
         v-model="newName"
         placeholder="名字"
         class="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
       />
       <select
-        v-model.number="newLevel"
-        class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm"
+        v-model.number="newRating"
+        class="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm sm:w-auto"
         aria-label="初始等級"
       >
         <option
           v-for="lv in INITIAL_LEVELS"
-          :key="lv.rating"
+          :key="lv.level"
           :value="lv.rating"
         >
-          {{ lv.label }}（{{ lv.rating }}）
+          {{ lv.level }} 級｜{{ lv.tier }}（{{ lv.rating }}）
         </option>
       </select>
       <button
