@@ -17,11 +17,32 @@ import { exportCsv, importCsv } from './lib/csv'
 
 const STORAGE_KEY = 'badminton-matcher:v1'
 
-export const INITIAL_LEVELS = [
-  { label: '新手', rating: 1300 },
-  { label: '中等', rating: 1500 },
-  { label: '較強', rating: 1700 },
+const INITIAL_TIERS = [
+  '新手階',
+  '新手階',
+  '新手階',
+  '初階',
+  '初階',
+  '初中階',
+  '初中階',
+  '中階',
+  '中階',
+  '中進階',
+  '中進階',
+  '中進階',
+  '高階',
+  '高階',
+  '高階',
+  '職業級',
+  '職業級',
+  '職業級',
 ] as const
+
+export const INITIAL_LEVELS = INITIAL_TIERS.map((tier, index) => ({
+  level: index + 1,
+  tier,
+  rating: 800 + index * 100,
+}))
 
 function loadData(): AppData {
   try {

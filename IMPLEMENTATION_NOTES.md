@@ -31,7 +31,7 @@
 - 分組預覽：點第一人選取（黑框）、點第二人交換，A/B 隊與休息名單皆可；統計與 rating 以實際確認開打的分組計算（match 紀錄存的就是最終分組與休息者）。
 - 比分：非負整數、不可平手（前端與 store 雙層驗證）、不強制 21 分制。
 - 歷史：依場次分群、每場可改比分/刪除（皆 confirm），改後呼叫 `recalcAll` 同步所有人 rating。
-- 參賽者：新增時選初始等級（新手 1300/中等 1500/較強 1700）、名字 inline 編輯、色票點擊開任意 color picker、點 rating 數字可手動覆寫（RD 重設 350）；刪除僅限無比賽紀錄者（避免歷史懸空）。
+- 參賽者：新增時依台灣羽球推廣協會分級選 1–18 級（初始 rating 800–2500、每級差 100，預設 8 級／1500）、名字 inline 編輯、色票點擊開任意 color picker、點 rating 數字可手動覆寫（RD 重設 350）；刪除僅限無比賽紀錄者（避免歷史懸空）。
 - PWA：`public/manifest.webmanifest`＋`public/sw.js`（install 時 precache `/` 等入口，runtime cache-first 快取同源 GET）。僅 production 註冊，避免干擾 dev。
 
 ## 已知取捨／簡化
