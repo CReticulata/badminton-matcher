@@ -7,7 +7,6 @@ import {
   joinSession,
   leaveSession,
   playerById,
-  previewNextRound,
   proposeRound,
   sessionStats,
   startSession,
@@ -43,11 +42,6 @@ const absentPlayers = computed(() =>
   data.players.filter((p) => !sess.value?.presentIds.includes(p.id)),
 )
 
-const preview = computed(() => {
-  if (!sess.value || ui.pending || ui.live) return null
-  return previewNextRound()
-})
-
 function onPropose() {
   message.value = ''
   if (!proposeRound()) {
@@ -59,9 +53,6 @@ function onPropose() {
 function onEnd() {
   if (window.confirm('確定結束本場次？（全域名單與 rating 會保留）')) endSession()
 }
-
-const names = (ids: string[]) =>
-  ids.map((id) => playerById.value.get(id)?.name ?? '?').join('、')
 </script>
 
 <template>
@@ -134,12 +125,6 @@ const names = (ids: string[]) =>
       >
         產生下一場分組
       </button>
-
-      <p v-if="preview" class="mb-4 text-center text-xs text-slate-400">
-        預告：{{ names(preview.teamA) }} vs {{ names(preview.teamB)
-        }}<template v-if="preview.resters.length">（休息：{{ names(preview.resters) }}）</template>
-        — 僅預告，人員變動時可能改變
-      </p>
 
       <!-- 在場名單 -->
       <h3 class="mb-2 mt-4 text-sm font-semibold text-slate-600">

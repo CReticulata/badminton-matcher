@@ -273,11 +273,6 @@ export function proposeRound(): boolean {
   return true
 }
 
-/** 下一場預告（僅供顯示，不進入流程） */
-export function previewNextRound(): RoundProposal | null {
-  return generateRound(candidates(), ui.mode)
-}
-
 /** 分組預覽中：交換兩人位置（隊伍 A/B/休息名單皆可） */
 export function swapInPending(idA: string, idB: string) {
   const p = ui.pending
