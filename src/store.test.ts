@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addPlayer,
   activePlayers,
+  archivedPlayers,
   archivePlayer,
   clearAllHistory,
   clearSession,
@@ -142,6 +143,10 @@ describe('球員封存', () => {
     expect(restorePlayer(player.id)).toBe(true)
     expect(player.archivedAt).toBeUndefined()
     expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(true)
+
+    data.players.find((candidate) => candidate.id === player.id)!.archivedAt = 0
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(false)
+    expect(archivedPlayers.value.some((candidate) => candidate.id === player.id)).toBe(true)
   })
 })
 

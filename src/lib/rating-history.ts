@@ -12,6 +12,7 @@ export interface SessionSummaryRow {
 export interface SessionRatingReport {
   matchChanges: Map<string, Record<string, number>>
   endingStates: Map<string, GlickoState>
+  summaryReliable: boolean
   summary: SessionSummaryRow[]
 }
 
@@ -90,23 +91,26 @@ export function sessionRatingReport(
   }
 
   const added = new Set(session.addedDuringSessionIds ?? [])
-  const summary = participantIds
-    .map((playerId, joinedIndex): SessionSummaryRow & { joinedIndex: number } => {
-      const start = opening[playerId]!
-      const end = states.get(playerId) ?? cloneState(start)
-      const openingRating = rounded(start.rating)
-      const endingRating = rounded(end.rating)
-      return {
-        playerId,
-        openingRating,
-        endingRating,
-        delta: endingRating - openingRating,
-        addedDuringSession: added.has(playerId),
-        joinedIndex,
-      }
-    })
-    .sort((a, b) => b.delta - a.delta || a.joinedIndex - b.joinedIndex)
-    .map(({ joinedIndex: _joinedIndex, ...row }) => row)
+  const summaryReliable = session.participantOrderReliable !== false
+  const summary = summaryReliable
+    ? participantIds
+        .map((playerId, joinedIndex): SessionSummaryRow & { joinedIndex: number } => {
+          const start = opening[playerId]!
+          const end = states.get(playerId) ?? cloneState(start)
+          const openingRating = rounded(start.rating)
+          const endingRating = rounded(end.rating)
+          return {
+            playerId,
+            openingRating,
+            endingRating,
+            delta: endingRating - openingRating,
+            addedDuringSession: added.has(playerId),
+            joinedIndex,
+          }
+        })
+        .sort((a, b) => b.delta - a.delta || a.joinedIndex - b.joinedIndex)
+        .map(({ joinedIndex: _joinedIndex, ...row }) => row)
+    : []
 
-  return { matchChanges, endingStates: states, summary }
+  return { matchChanges, endingStates: states, summaryReliable, summary }
 }

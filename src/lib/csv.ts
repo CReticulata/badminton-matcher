@@ -65,7 +65,7 @@ const OVERRIDE_HEADER = ['id', 'playerId', 'rating', 'at']
 const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
 const SESSION_HEADER = [
   'id', 'name', 'startedAt', 'endedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active',
-  'participantIds', 'addedDuringSessionIds', 'openingRatings',
+  'participantIds', 'participantOrderReliable', 'addedDuringSessionIds', 'openingRatings',
 ]
 const MATCH_HEADER = ['id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters']
 
@@ -91,8 +91,8 @@ export function exportCsv(data: AppData): string {
       [
         s.id, s.name, s.startedAt, s.endedAt ?? '', joinIds(s.presentIds),
         joinIds(s.leftIds), joinIds(s.volunteerRest), s.active,
-        joinIds(s.participantIds ?? []), joinIds(s.addedDuringSessionIds ?? []),
-        s.openingRatings ? JSON.stringify(s.openingRatings) : '',
+        joinIds(s.participantIds ?? []), s.participantOrderReliable ?? '',
+        joinIds(s.addedDuringSessionIds ?? []), s.openingRatings ? JSON.stringify(s.openingRatings) : '',
       ]
         .map(esc)
         .join(','),
@@ -189,6 +189,9 @@ export function importCsv(text: string): AppData {
       const endedAt = optionalNum(row.endedAt, 'endedAt')
       if (endedAt !== undefined) s.endedAt = endedAt
       if (row.participantIds !== undefined) s.participantIds = splitIds(row.participantIds)
+      if (row.participantOrderReliable !== undefined && row.participantOrderReliable !== '') {
+        s.participantOrderReliable = row.participantOrderReliable === 'true'
+      }
       if (row.addedDuringSessionIds !== undefined) {
         s.addedDuringSessionIds = splitIds(row.addedDuringSessionIds)
       }

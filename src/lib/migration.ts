@@ -17,7 +17,10 @@ export function migrateAppData(data: AppData): AppData {
       ...sessionMatches.flatMap((match) => [...match.teamA, ...match.teamB, ...match.resters]),
     ])
 
-    session.participantIds ??= inferredParticipants
+    if (session.participantIds === undefined) {
+      session.participantIds = inferredParticipants
+      session.participantOrderReliable = false
+    }
     session.addedDuringSessionIds ??= session.participantIds.filter(
       (id) => (playersById.get(id)?.createdAt ?? -Infinity) > session.startedAt,
     )

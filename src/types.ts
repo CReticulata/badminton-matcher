@@ -66,6 +66,8 @@ export interface Session {
   openingRatings?: Record<string, RatingSnapshot>
   /** 依首次加入活動的順序保存，離場或重新加入不會移除／重排 */
   participantIds?: string[]
+  /** false 表示舊資料只能推測參賽者集合，無法可靠還原首次加入順序 */
+  participantOrderReliable?: boolean
   /** 活動開始後才建立的球員 */
   addedDuringSessionIds?: string[]
   /** 目前在場者 */

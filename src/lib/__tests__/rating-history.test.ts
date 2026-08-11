@@ -99,6 +99,17 @@ describe('sessionRatingReport', () => {
     expect(report.summary.every((row) => row.delta === 0)).toBe(true)
   })
 
+  it('舊活動加入順序不可靠時保留單場變動但不產生整日摘要', () => {
+    const report = sessionRatingReport(
+      { ...session, participantOrderReliable: false },
+      [match('m1', 200, ['a'], ['b'], 21, 18)],
+    )!
+
+    expect(report.matchChanges.has('m1')).toBe(true)
+    expect(report.summaryReliable).toBe(false)
+    expect(report.summary).toEqual([])
+  })
+
   it('開場狀態不完整時不產生活動報告', () => {
     const incomplete: Session = {
       ...session,

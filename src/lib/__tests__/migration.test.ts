@@ -26,6 +26,7 @@ describe('migrateAppData', () => {
     const session = migrated.sessions[0]!
 
     expect(session.participantIds).toEqual(['a', 'b', 'late'])
+    expect(session.participantOrderReliable).toBe(false)
     expect(session.addedDuringSessionIds).toEqual(['late'])
     expect(session.openingRatings).toEqual({
       a: { rating: 1500, rd: 350, vol: 0.06 },

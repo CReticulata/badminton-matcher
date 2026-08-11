@@ -1,7 +1,7 @@
 /**
  * 全域 store：Vue reactivity + localStorage 持久化。
  */
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { AppData, Match, Mode, Player, RoundProposal, Session } from './types'
 import {
   DEFAULT_RD,
@@ -72,15 +72,23 @@ function loadData(): AppData {
 
 export const data = reactive<AppData>(loadData())
 
+export const persistenceError = ref<string | null>(null)
+
+export function persistData(): boolean {
+  if (typeof localStorage === 'undefined') return true
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    persistenceError.value = null
+    return true
+  } catch {
+    persistenceError.value = '資料尚未儲存到此裝置，請先匯出 CSV 備份並釋放瀏覽器儲存空間。'
+    return false
+  }
+}
+
 watch(
   data,
-  () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    } catch {
-      /* 空間不足等錯誤：忽略，資料量極小不太可能發生 */
-    }
-  },
+  persistData,
   { deep: true },
 )
 
@@ -111,8 +119,8 @@ export const playerById = computed(() => {
   return m
 })
 
-export const activePlayers = computed(() => data.players.filter((player) => !player.archivedAt))
-export const archivedPlayers = computed(() => data.players.filter((player) => !!player.archivedAt))
+export const activePlayers = computed(() => data.players.filter((player) => player.archivedAt === undefined))
+export const archivedPlayers = computed(() => data.players.filter((player) => player.archivedAt !== undefined))
 
 const currentSessionMatches = computed(() => {
   const sessionId = currentSession.value?.id

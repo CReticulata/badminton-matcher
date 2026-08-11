@@ -153,7 +153,7 @@ function onDelete(m: Match) {
         </h3>
         <div class="flex items-center gap-3">
           <button
-            v-if="g.session && !g.session.active && report(g.sessionId)"
+            v-if="g.session && !g.session.active && report(g.sessionId)?.summaryReliable"
             class="text-xs font-medium text-teal-700 hover:underline"
             @click="toggleSummary(g.sessionId)"
           >
@@ -168,7 +168,7 @@ function onDelete(m: Match) {
         </div>
       </div>
       <div
-        v-if="expandedSessions.has(g.sessionId) && report(g.sessionId)"
+        v-if="expandedSessions.has(g.sessionId) && report(g.sessionId)?.summaryReliable"
         class="mb-3 rounded-xl border border-teal-100 bg-teal-50/60 p-3"
       >
         <div class="mb-2 grid grid-cols-[1fr_auto_auto_auto] gap-3 text-[11px] text-slate-500">

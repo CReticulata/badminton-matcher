@@ -51,4 +51,19 @@ describe('歷史 rating 顯示', () => {
     expect(html).toContain('查看活動摘要')
     expect(html).toContain('沒有完成的比賽')
   })
+
+  it('加入順序不可靠的舊活動不顯示整日摘要按鈕', async () => {
+    const a = addPlayer('小明', 1500)
+    const b = addPlayer('阿華', 1500)
+    startSession([a.id, b.id])
+    const session = data.sessions[0]!
+    session.participantOrderReliable = false
+    ui.live = { mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [] }
+    expect(submitScore(21, 18)).toBeNull()
+    endSession()
+
+    const html = await renderToString(createSSRApp(HistoryView))
+    expect(html).not.toContain('查看活動摘要')
+    expect(html).toMatch(/[+−]\d+/)
+  })
 })
