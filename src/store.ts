@@ -220,11 +220,14 @@ export function archivePlayer(id: string): boolean {
 }
 
 export function restorePlayer(id: string): boolean {
-  const player = playerById.value.get(id)
-  if (!player?.archivedAt) return false
-  delete player.archivedAt
+  const p = data.players.find((player) => player.id === id)
+  if (!p || p.archivedAt === undefined) return false
+  delete p.archivedAt
   return true
 }
+
+/** @deprecated 刪除已改為可還原的封存；保留給既有呼叫端相容。 */
+export const removePlayer = archivePlayer
 
 // ---------- 場次 ----------
 
