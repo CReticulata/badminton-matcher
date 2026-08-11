@@ -9,6 +9,7 @@ import {
   OVERRIDE_RD,
   applyMatch,
   recalcAll,
+  replayRatings,
   type GlickoState,
 } from './lib/glicko2'
 import {
@@ -18,6 +19,8 @@ import {
 } from './lib/matchmaking'
 import { nextDefaultColor } from './lib/color'
 import { exportCsv, importCsv } from './lib/csv'
+import { sessionRatingReport } from './lib/rating-history'
+import { migrateAppData } from './lib/migration'
 
 const STORAGE_KEY = 'badminton-matcher:v1'
 
@@ -53,13 +56,13 @@ function loadData(): AppData {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const d = JSON.parse(raw) as AppData
-      return {
+      return migrateAppData({
         players: d.players ?? [],
         sessions: d.sessions ?? [],
         matches: d.matches ?? [],
         overrides: d.overrides ?? [],
         baselines: d.baselines ?? [],
-      }
+      })
     }
   } catch {
     /* 壞資料視為空 */
@@ -114,6 +117,15 @@ const currentSessionMatches = computed(() => {
   return data.matches.filter((match) => match.sessionId === sessionId)
 })
 
+export const ratingReportsBySession = computed(() => {
+  const reports = new Map<string, NonNullable<ReturnType<typeof sessionRatingReport>>>()
+  for (const session of data.sessions) {
+    const report = sessionRatingReport(session, data.matches)
+    if (report) reports.set(session.id, report)
+  }
+  return reports
+})
+
 /** 全期比賽/休息次數（參賽者列表用） */
 export const totalStats = computed(() => {
   const stats = new Map<string, { played: number; rested: number }>()
@@ -164,6 +176,13 @@ export function addPlayer(name: string, initialRating: number): Player {
     createdAt: Date.now(),
   }
   data.players.push(p)
+  const session = currentSession.value
+  if (session) {
+    session.openingRatings ??= {}
+    session.openingRatings[p.id] = { rating: p.rating, rd: p.rd, vol: p.vol }
+    session.addedDuringSessionIds ??= []
+    session.addedDuringSessionIds.push(p.id)
+  }
   return p
 }
 
@@ -178,13 +197,15 @@ export function setPlayerColor(id: string, color: string) {
 }
 
 /** 手動覆寫 rating：RD 重設為高值，並記錄事件供全量重算重播 */
-export function overrideRating(id: string, rating: number) {
+export function overrideRating(id: string, rating: number): boolean {
+  if (currentSession.value) return false
   const p = playerById.value.get(id)
-  if (!p) return
+  if (!p) return false
   data.overrides.push({ id: genId(), playerId: id, rating, at: Date.now() })
   p.rating = rating
   p.rd = OVERRIDE_RD
   p.vol = DEFAULT_VOL
+  return true
 }
 
 /** 僅允許刪除沒有任何比賽紀錄的人 */
@@ -213,6 +234,14 @@ export function startSession(presentIds: string[]) {
     id: genId(),
     name: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} 場次`,
     startedAt: Date.now(),
+    openingRatings: Object.fromEntries(
+      data.players.map((player) => [
+        player.id,
+        { rating: player.rating, rd: player.rd, vol: player.vol },
+      ]),
+    ),
+    participantIds: [...presentIds],
+    addedDuringSessionIds: [],
     presentIds: [...presentIds],
     leftIds: [],
     volunteerRest: [],
@@ -224,7 +253,10 @@ export function startSession(presentIds: string[]) {
 
 export function endSession() {
   const s = currentSession.value
-  if (s) s.active = false
+  if (s) {
+    s.active = false
+    s.endedAt = Date.now()
+  }
   ui.pending = null
   ui.live = null
   ui.scoring = false
@@ -233,6 +265,8 @@ export function endSession() {
 export function joinSession(playerId: string) {
   const s = currentSession.value
   if (!s) return
+  s.participantIds ??= [...s.presentIds, ...s.leftIds]
+  if (!s.participantIds.includes(playerId)) s.participantIds.push(playerId)
   if (!s.presentIds.includes(playerId)) s.presentIds.push(playerId)
   s.leftIds = s.leftIds.filter((x) => x !== playerId)
 }
@@ -356,6 +390,33 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
 // ---------- 歷史修改（全量重算） ----------
 
 function runFullRecalc() {
+  const latestSession = data.sessions
+    .filter((session) => ratingReportsBySession.value.has(session.id))
+    .sort((a, b) => b.startedAt - a.startedAt)[0]
+  if (latestSession) {
+    const report = ratingReportsBySession.value.get(latestSession.id)!
+    const sessionMatches = data.matches.filter((match) => match.sessionId === latestSession.id)
+    const boundaryAt =
+      latestSession.endedAt ??
+      Math.max(latestSession.startedAt, ...sessionMatches.map((match) => match.at))
+    const states = replayRatings(
+      report.endingStates,
+      data.matches.filter(
+        (match) => match.sessionId !== latestSession.id && match.at >= boundaryAt,
+      ),
+      data.overrides.filter((override) => override.at >= boundaryAt),
+      data.baselines.filter((baseline) => baseline.at >= boundaryAt),
+    )
+    for (const p of data.players) {
+      const state = states.get(p.id)
+      if (state) {
+        p.rating = state.rating
+        p.rd = state.rd
+        p.vol = state.vol
+      }
+    }
+    return
+  }
   const states = recalcAll(data.players, data.matches, data.overrides, data.baselines)
   for (const p of data.players) {
     const s = states.get(p.id)
@@ -455,7 +516,7 @@ export function downloadCsvBackup() {
 
 /** 覆蓋還原；格式錯誤時 throw */
 export function importCsvText(text: string) {
-  const parsed = importCsv(text)
+  const parsed = migrateAppData(importCsv(text))
   data.players = parsed.players as typeof data.players
   data.sessions = parsed.sessions as typeof data.sessions
   data.matches = parsed.matches as typeof data.matches
