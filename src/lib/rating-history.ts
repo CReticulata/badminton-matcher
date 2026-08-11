@@ -35,12 +35,11 @@ export function sessionRatingReport(
   for (const [id, state] of Object.entries(opening)) states.set(id, cloneState(state))
 
   const ordered = matches
-    .map((match, index) => ({ match, index }))
-    .filter(({ match }) => match.sessionId === session.id)
-    .sort((a, b) => a.match.at - b.match.at || a.index - b.index)
+    .filter((match) => match.sessionId === session.id)
+    .sort((a, b) => a.at - b.at)
 
   const matchChanges = new Map<string, Record<string, number>>()
-  for (const { match } of ordered) {
+  for (const match of ordered) {
     const playerIds = [...match.teamA, ...match.teamB]
     if (playerIds.some((id) => !states.has(id))) return null
 

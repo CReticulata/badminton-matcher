@@ -226,9 +226,6 @@ export function restorePlayer(id: string): boolean {
   return true
 }
 
-/** @deprecated 刪除已改為可還原的封存。 */
-export const removePlayer = archivePlayer
-
 // ---------- 場次 ----------
 
 export function startSession(presentIds: string[]) {
@@ -393,6 +390,16 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
 
 // ---------- 歷史修改（全量重算） ----------
 
+function applyRatingStates(states: ReadonlyMap<string, GlickoState>) {
+  for (const player of data.players) {
+    const state = states.get(player.id)
+    if (!state) continue
+    player.rating = state.rating
+    player.rd = state.rd
+    player.vol = state.vol
+  }
+}
+
 function runFullRecalc() {
   const latestSession = data.sessions
     .filter((session) => ratingReportsBySession.value.has(session.id))
@@ -411,25 +418,11 @@ function runFullRecalc() {
       data.overrides.filter((override) => override.at >= boundaryAt),
       data.baselines.filter((baseline) => baseline.at >= boundaryAt),
     )
-    for (const p of data.players) {
-      const state = states.get(p.id)
-      if (state) {
-        p.rating = state.rating
-        p.rd = state.rd
-        p.vol = state.vol
-      }
-    }
+    applyRatingStates(states)
     return
   }
   const states = recalcAll(data.players, data.matches, data.overrides, data.baselines)
-  for (const p of data.players) {
-    const s = states.get(p.id)
-    if (s) {
-      p.rating = s.rating
-      p.rd = s.rd
-      p.vol = s.vol
-    }
-  }
+  applyRatingStates(states)
 }
 
 export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {

@@ -66,19 +66,19 @@ function confirmClear() {
 
 /** 依場次分群（新→舊） */
 const groups = computed(() => {
-  const bySession = new Map<string, Match[]>()
-  for (const session of data.sessions) bySession.set(session.id, [])
+  const bySession = new Map<string, { session: Session | null; matches: Match[] }>()
+  for (const session of data.sessions) bySession.set(session.id, { session, matches: [] })
   for (const m of data.matches) {
-    const list = bySession.get(m.sessionId) ?? []
-    list.push(m)
-    bySession.set(m.sessionId, list)
+    const group = bySession.get(m.sessionId) ?? { session: null, matches: [] }
+    group.matches.push(m)
+    bySession.set(m.sessionId, group)
   }
   const out: { session: Session | null; sessionId: string; matches: Match[] }[] = []
-  for (const [sessionId, matches] of bySession) {
+  for (const [sessionId, group] of bySession) {
     out.push({
       sessionId,
-      session: data.sessions.find((s) => s.id === sessionId) ?? null,
-      matches: matches.slice().sort((a, b) => b.at - a.at),
+      session: group.session,
+      matches: group.matches.slice().sort((a, b) => b.at - a.at),
     })
   }
   return out.sort((a, b) => (b.session?.startedAt ?? 0) - (a.session?.startedAt ?? 0))
