@@ -2,7 +2,7 @@
  * 清除歷史紀錄功能測試（clearSession / clearAllHistory）。
  * 每個 it 前重置 store 內的 data，避免測試間互相污染（store 為 module 單例）。
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addPlayer,
   clearAllHistory,
@@ -13,7 +13,9 @@ import {
   exportCsvText,
   importCsvText,
   overrideRating,
+  proposeRound,
   startSession,
+  ui,
 } from './store'
 import { recalcAll } from './lib/glicko2'
 
@@ -27,6 +29,53 @@ function resetStore() {
 
 beforeEach(() => {
   resetStore()
+  ui.pending = null
+  ui.live = null
+  ui.mode = 'doubles'
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('proposeRound 連續上場優先級', () => {
+  it('上場次數相同時，優先讓連續上場場數最多者休息', () => {
+    const players = [...'abcde'].map((name) => addPlayer(name, 1500))
+    startSession(players.map((player) => player.id))
+    const sessionId = data.sessions[0]!.id
+
+    // 五場中每人各休息一次，因此當日上場次數相同；
+    // 休息順序 a → b → c → d → e，下一場應輪到連打 4 場的 a 休息。
+    for (let restIndex = 0; restIndex < players.length; restIndex++) {
+      const playing = players.filter((_, index) => index !== restIndex)
+      data.matches.push({
+        id: `m${restIndex + 1}`,
+        sessionId,
+        at: restIndex + 1,
+        mode: 'doubles',
+        teamA: playing.slice(0, 2).map((player) => player.id),
+        teamB: playing.slice(2).map((player) => player.id),
+        scoreA: 21,
+        scoreB: 15,
+        resters: [players[restIndex]!.id],
+      })
+    }
+    data.matches.push({
+      id: 'other-session-match',
+      sessionId: 'other-session',
+      at: 100,
+      mode: 'singles',
+      teamA: [players[0]!.id],
+      teamB: [players[4]!.id],
+      scoreA: 21,
+      scoreB: 18,
+      resters: [],
+    })
+
+    vi.spyOn(Math, 'random').mockReturnValue(0.999999)
+    expect(proposeRound()).toBe(true)
+    expect(ui.pending?.resters).toEqual([players[0]!.id])
+  })
 })
 
 describe('clearSession / clearAllHistory', () => {

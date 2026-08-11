@@ -11,7 +11,11 @@ import {
   recalcAll,
   type GlickoState,
 } from './lib/glicko2'
-import { generateRound, type Candidate } from './lib/matchmaking'
+import {
+  consecutivePlayCounts,
+  generateRound,
+  type Candidate,
+} from './lib/matchmaking'
 import { nextDefaultColor } from './lib/color'
 import { exportCsv, importCsv } from './lib/csv'
 
@@ -104,6 +108,12 @@ export const playerById = computed(() => {
   return m
 })
 
+const currentSessionMatches = computed(() => {
+  const sessionId = currentSession.value?.id
+  if (!sessionId) return []
+  return data.matches.filter((match) => match.sessionId === sessionId)
+})
+
 /** 全期比賽/休息次數（參賽者列表用） */
 export const totalStats = computed(() => {
   const stats = new Map<string, { played: number; rested: number }>()
@@ -125,8 +135,6 @@ export const totalStats = computed(() => {
 /** 當日（目前場次）上場/休息次數 */
 export const sessionStats = computed(() => {
   const stats = new Map<string, { played: number; rested: number }>()
-  const sess = currentSession.value
-  if (!sess) return stats
   const get = (id: string) => {
     let s = stats.get(id)
     if (!s) {
@@ -135,8 +143,7 @@ export const sessionStats = computed(() => {
     }
     return s
   }
-  for (const m of data.matches) {
-    if (m.sessionId !== sess.id) continue
+  for (const m of currentSessionMatches.value) {
     for (const id of [...m.teamA, ...m.teamB]) get(id).played++
     for (const id of m.resters) get(id).rested++
   }
@@ -254,11 +261,13 @@ function candidates(): Candidate[] {
   const s = currentSession.value
   if (!s) return []
   const stats = sessionStats.value
+  const consecutiveCounts = consecutivePlayCounts(currentSessionMatches.value)
   return s.presentIds.map((id) => {
     const p = playerById.value.get(id)
     return {
       id,
       playCount: stats.get(id)?.played ?? 0,
+      consecutivePlayCount: consecutiveCounts.get(id) ?? 0,
       rating: p?.rating ?? 1500,
       volunteerRest: s.volunteerRest.includes(id),
     }

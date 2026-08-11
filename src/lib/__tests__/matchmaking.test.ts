@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { balanceTeams, generateRound, type Candidate } from '../matchmaking'
+import type { Match } from '../../types'
+import {
+  balanceTeams,
+  consecutivePlayCounts,
+  generateRound,
+  type Candidate,
+} from '../matchmaking'
 
-const mk = (id: string, playCount: number, rating = 1500, volunteerRest = false): Candidate => ({
+const mk = (
+  id: string,
+  playCount: number,
+  rating = 1500,
+  volunteerRest = false,
+  consecutivePlayCount = 0,
+): Candidate => ({
   id,
   playCount,
   rating,
   volunteerRest,
+  consecutivePlayCount,
 })
 
 /** 決定性的假亂數 */
@@ -16,6 +29,77 @@ const seededRng = (seed = 42) => {
     return s / 2147483648
   }
 }
+
+const completedMatch = (
+  id: string,
+  sessionId: string,
+  at: number,
+  playing: [string, string, string, string],
+): Match => ({
+  id,
+  sessionId,
+  at,
+  mode: 'doubles',
+  teamA: playing.slice(0, 2),
+  teamB: playing.slice(2),
+  scoreA: 21,
+  scoreB: 15,
+  resters: [],
+})
+
+describe('consecutivePlayCounts', () => {
+  it('從同一場次最新一場向前計算未中斷的實際上場場數', () => {
+    const counts = consecutivePlayCounts(
+      [
+        completedMatch('m2', 'session-a', 2, ['a', 'b', 'c', 'e']),
+        completedMatch('m3', 'session-a', 3, ['a', 'b', 'd', 'e']),
+        completedMatch('m1', 'session-a', 1, ['a', 'b', 'c', 'd']),
+      ],
+    )
+
+    expect(counts.get('a')).toBe(3)
+    expect(counts.get('b')).toBe(3)
+    expect(counts.get('d')).toBe(1)
+    expect(counts.get('e')).toBe(2)
+    expect(counts.get('c') ?? 0).toBe(0)
+  })
+
+  it('單打與雙打共用連續紀錄', () => {
+    const singles: Match = {
+      id: 'm2',
+      sessionId: 'session-a',
+      at: 2,
+      mode: 'singles',
+      teamA: ['a'],
+      teamB: ['b'],
+      scoreA: 21,
+      scoreB: 18,
+      resters: ['c', 'd'],
+    }
+    const counts = consecutivePlayCounts(
+      [
+        completedMatch('m1', 'session-a', 1, ['a', 'b', 'c', 'd']),
+        singles,
+      ],
+    )
+
+    expect(counts.get('a')).toBe(2)
+    expect(counts.get('b')).toBe(2)
+    expect(counts.get('c') ?? 0).toBe(0)
+    expect(consecutivePlayCounts([])).toEqual(new Map())
+  })
+
+  it('時間相同時以較後記錄者視為較新一場', () => {
+    const counts = consecutivePlayCounts([
+      completedMatch('m1', 'session-a', 1, ['a', 'b', 'c', 'd']),
+      completedMatch('m2', 'session-a', 1, ['a', 'b', 'd', 'e']),
+    ])
+
+    expect(counts.get('a')).toBe(2)
+    expect(counts.get('e')).toBe(1)
+    expect(counts.get('c') ?? 0).toBe(0)
+  })
+})
 
 describe('generateRound', () => {
   it('4 人：全員上場、無人休息', () => {
@@ -129,6 +213,39 @@ describe('generateRound', () => {
       seen.add(out.resters[0]!)
     }
     expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('上場次數相同時，連續上場場數最多者優先休息', () => {
+    const out = generateRound(
+      [
+        mk('a', 4, 1500, false, 4),
+        mk('b', 4, 1500, false, 3),
+        mk('c', 4, 1500, false, 2),
+        mk('d', 4, 1500, false, 1),
+        mk('e', 4, 1500, false, 0),
+      ],
+      'doubles',
+      () => 0.999999,
+    )!
+
+    expect(out.resters).toEqual(['a'])
+  })
+
+  it('當日上場次數優先於連續上場場數', () => {
+    const out = generateRound(
+      [
+        mk('late', 0, 1500, false, 9),
+        mk('a', 1, 1500, false, 0),
+        mk('b', 1, 1500, false, 0),
+        mk('c', 1, 1500, false, 0),
+        mk('d', 2, 1500, false, 0),
+      ],
+      'doubles',
+      () => 0.999999,
+    )!
+
+    expect([...out.teamA, ...out.teamB]).toContain('late')
+    expect(out.resters).toEqual(['d'])
   })
 
   it('公平優先於平衡：上場次數最多者必休息，即使休息他會更平衡', () => {
