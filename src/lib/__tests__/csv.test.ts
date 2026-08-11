@@ -23,6 +23,7 @@ const sample: AppData = {
       vol: 0.06,
       initialRating: 1300,
       createdAt: 1001,
+      archivedAt: 4000,
     },
   ],
   sessions: [
@@ -30,6 +31,12 @@ const sample: AppData = {
       id: 's1',
       name: '2026/8/5 場次',
       startedAt: 2000,
+      openingRatings: {
+        p1: { rating: 1500, rd: 350, vol: 0.06 },
+        p2: { rating: 1300, rd: 350, vol: 0.06 },
+      },
+      participantIds: ['p1', 'p2'],
+      addedDuringSessionIds: [],
       presentIds: ['p1', 'p2'],
       leftIds: [],
       volunteerRest: ['p2'],

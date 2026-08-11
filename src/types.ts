@@ -17,6 +17,7 @@ export interface Player {
   /** 建立時依 1–18 級選擇的初始 rating，全量重算的起點 */
   initialRating: number
   createdAt: number
+  archivedAt?: number
 }
 
 /** 手動覆寫 rating 的事件（全量重算時依時間序重播） */

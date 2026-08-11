@@ -2,13 +2,16 @@
 import { ref } from "vue";
 import {
   INITIAL_LEVELS,
+  activePlayers,
   addPlayer,
-  data,
+  archivePlayer,
+  archivedPlayers,
+  currentSession,
   downloadCsvBackup,
   importCsvText,
   overrideRating,
-  removePlayer,
   renamePlayer,
+  restorePlayer,
   setPlayerColor,
   totalStats,
 } from "../store";
@@ -19,6 +22,7 @@ const newRating = ref<number>(
   INITIAL_LEVELS.find((level) => level.level === 8)?.rating ?? 1500,
 );
 const message = ref("");
+const showArchived = ref(false);
 
 function onAdd() {
   if (!newName.value.trim()) return;
@@ -37,15 +41,20 @@ function onOverride(id: string, current: number) {
     message.value = "請輸入有效的正數分數";
     return;
   }
-  overrideRating(id, n);
+  if (!overrideRating(id, n)) {
+    message.value = "活動進行中不可手動調整強度分數";
+    return;
+  }
   message.value = "";
 }
 
-function onDelete(id: string, name: string) {
-  if (!window.confirm(`確定刪除「${name}」？`)) return;
-  if (!removePlayer(id)) {
-    message.value = "此人已有比賽紀錄，無法刪除（避免歷史不一致）";
+function onArchive(id: string, name: string) {
+  if (!window.confirm(`確定封存「${name}」？歷史與 CSV 仍會保留此人。`)) return;
+  if (!archivePlayer(id)) {
+    message.value = "活動進行中不可封存球員";
+    return;
   }
+  message.value = "已封存，可從下方「已封存」區塊還原";
 }
 
 function onExport() {
@@ -137,7 +146,7 @@ async function onImportFile(e: Event) {
     </form>
 
     <p
-      v-if="data.players.length === 0"
+      v-if="activePlayers.length === 0"
       class="py-10 text-center text-sm text-slate-500"
     >
       還沒有參賽者，先新增幾位吧
@@ -146,7 +155,7 @@ async function onImportFile(e: Event) {
     <!-- 列表：名字 / 分數 / 比賽次數 / 休息次數 / 顏色 -->
     <ul class="space-y-2">
       <li
-        v-for="p in data.players"
+        v-for="p in activePlayers"
         :key="p.id"
         class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
       >
@@ -183,6 +192,7 @@ async function onImportFile(e: Event) {
             <button
               class="text-base font-bold tabular-nums text-slate-800 underline decoration-dotted underline-offset-4"
               :title="`RD ${Math.round(p.rd)}，點擊手動覆寫`"
+              :disabled="!!currentSession"
               @click="onOverride(p.id, p.rating)"
             >
               {{ Math.round(p.rating) }}
@@ -195,12 +205,37 @@ async function onImportFile(e: Event) {
           <span>RD {{ Math.round(p.rd) }}</span>
           <button
             class="ml-auto text-red-400 hover:text-red-600"
-            @click="onDelete(p.id, p.name)"
+            :disabled="!!currentSession"
+            :title="currentSession ? '活動進行中不可封存' : '封存球員'"
+            @click="onArchive(p.id, p.name)"
           >
-            刪除
+            封存
           </button>
         </div>
       </li>
     </ul>
+
+    <section v-if="archivedPlayers.length" class="mt-6 border-t border-slate-200 pt-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-600"
+        @click="showArchived = !showArchived"
+      >
+        <span>已封存（{{ archivedPlayers.length }}）</span>
+        <span>{{ showArchived ? '收合' : '展開' }}</span>
+      </button>
+      <ul v-if="showArchived" class="mt-3 space-y-2">
+        <li
+          v-for="p in archivedPlayers"
+          :key="p.id"
+          class="flex items-center rounded-xl border border-slate-200 bg-slate-50 p-3"
+        >
+          <span class="font-medium text-slate-600">{{ p.name }}</span>
+          <span class="ml-2 text-xs tabular-nums text-slate-400">{{ Math.round(p.rating) }}</span>
+          <button class="ml-auto text-sm font-medium text-teal-700 hover:underline" @click="restorePlayer(p.id)">
+            還原
+          </button>
+        </li>
+      </ul>
+    </section>
   </div>
 </template>

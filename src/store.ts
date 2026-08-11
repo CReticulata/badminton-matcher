@@ -111,6 +111,9 @@ export const playerById = computed(() => {
   return m
 })
 
+export const activePlayers = computed(() => data.players.filter((player) => !player.archivedAt))
+export const archivedPlayers = computed(() => data.players.filter((player) => !!player.archivedAt))
+
 const currentSessionMatches = computed(() => {
   const sessionId = currentSession.value?.id
   if (!sessionId) return []
@@ -208,22 +211,23 @@ export function overrideRating(id: string, rating: number): boolean {
   return true
 }
 
-/** 僅允許刪除沒有任何比賽紀錄的人 */
-export function removePlayer(id: string): boolean {
-  const used = data.matches.some(
-    (m) => m.teamA.includes(id) || m.teamB.includes(id) || m.resters.includes(id),
-  )
-  if (used) return false
-  data.players = data.players.filter((p) => p.id !== id) as typeof data.players
-  data.overrides = data.overrides.filter((o) => o.playerId !== id) as typeof data.overrides
-  data.baselines = data.baselines.filter((b) => b.playerId !== id) as typeof data.baselines
-  for (const s of data.sessions) {
-    s.presentIds = s.presentIds.filter((x) => x !== id)
-    s.leftIds = s.leftIds.filter((x) => x !== id)
-    s.volunteerRest = s.volunteerRest.filter((x) => x !== id)
-  }
+export function archivePlayer(id: string): boolean {
+  if (currentSession.value) return false
+  const player = playerById.value.get(id)
+  if (!player || player.archivedAt) return false
+  player.archivedAt = Date.now()
   return true
 }
+
+export function restorePlayer(id: string): boolean {
+  const player = playerById.value.get(id)
+  if (!player?.archivedAt) return false
+  delete player.archivedAt
+  return true
+}
+
+/** @deprecated 刪除已改為可還原的封存。 */
+export const removePlayer = archivePlayer
 
 // ---------- 場次 ----------
 

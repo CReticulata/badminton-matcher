@@ -9,6 +9,7 @@ import {
   editMatchScore,
   latestBaselineAt,
   playerById,
+  ratingReportsBySession,
 } from '../store'
 import PlayerChip from './PlayerChip.vue'
 import type { Match, Session } from '../types'
@@ -17,6 +18,7 @@ const editing = ref<string | null>(null)
 const editA = ref('')
 const editB = ref('')
 const error = ref('')
+const expandedSessions = ref<Set<string>>(new Set())
 
 // ---------- 清除歷史紀錄 ----------
 
@@ -65,6 +67,7 @@ function confirmClear() {
 /** 依場次分群（新→舊） */
 const groups = computed(() => {
   const bySession = new Map<string, Match[]>()
+  for (const session of data.sessions) bySession.set(session.id, [])
   for (const m of data.matches) {
     const list = bySession.get(m.sessionId) ?? []
     list.push(m)
@@ -85,6 +88,17 @@ const groups = computed(() => {
 const beforeBaseline = (m: Match) => m.at < latestBaselineAt.value
 
 const player = (id: string) => playerById.value.get(id)
+const report = (sessionId: string) => ratingReportsBySession.value.get(sessionId)
+const matchDelta = (sessionId: string, matchId: string, playerId: string) =>
+  report(sessionId)?.matchChanges.get(matchId)?.[playerId]
+const formatDelta = (delta: number) =>
+  delta > 0 ? `+${delta}` : delta < 0 ? `−${Math.abs(delta)}` : '±0'
+const toggleSummary = (sessionId: string) => {
+  const next = new Set(expandedSessions.value)
+  if (next.has(sessionId)) next.delete(sessionId)
+  else next.add(sessionId)
+  expandedSessions.value = next
+}
 const time = (at: number) => {
   const d = new Date(at)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -128,7 +142,7 @@ function onDelete(m: Match) {
 <template>
   <div class="mx-auto max-w-2xl p-4 pb-24">
     <h2 class="mb-1 text-lg font-bold">歷史紀錄</h2>
-    <p class="mb-4 text-sm text-slate-500">修改或刪除後，所有人的強度分數會從完整歷史全量重算</p>
+    <p class="mb-4 text-sm text-slate-500">修改或刪除後，會從該活動的固定開場狀態重新計算</p>
 
     <p v-if="groups.length === 0" class="py-10 text-center text-sm text-slate-500">還沒有比賽紀錄</p>
 
@@ -137,13 +151,49 @@ function onDelete(m: Match) {
         <h3 class="text-sm font-semibold text-slate-600">
           {{ g.session?.name ?? '（未知場次）' }}
         </h3>
-        <button
-          class="text-xs text-red-500 hover:text-red-700 hover:underline"
-          @click="openClearSession(g.sessionId)"
-        >
-          清除此場次
-        </button>
+        <div class="flex items-center gap-3">
+          <button
+            v-if="g.session && !g.session.active && report(g.sessionId)"
+            class="text-xs font-medium text-teal-700 hover:underline"
+            @click="toggleSummary(g.sessionId)"
+          >
+            {{ expandedSessions.has(g.sessionId) ? '收合活動摘要' : '查看活動摘要' }}
+          </button>
+          <button
+            class="text-xs text-red-500 hover:text-red-700 hover:underline"
+            @click="openClearSession(g.sessionId)"
+          >
+            清除此場次
+          </button>
+        </div>
       </div>
+      <div
+        v-if="expandedSessions.has(g.sessionId) && report(g.sessionId)"
+        class="mb-3 rounded-xl border border-teal-100 bg-teal-50/60 p-3"
+      >
+        <div class="mb-2 grid grid-cols-[1fr_auto_auto_auto] gap-3 text-[11px] text-slate-500">
+          <span>參賽者</span><span>開場分數</span><span>結束分數</span><span>整日變動</span>
+        </div>
+        <div
+          v-for="row in report(g.sessionId)!.summary"
+          :key="row.playerId"
+          class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-t border-teal-100 py-2 text-sm"
+        >
+          <span class="min-w-0 font-medium text-slate-700">
+            {{ player(row.playerId)?.name ?? '?' }}
+            <span v-if="row.addedDuringSession" class="ml-1 text-[10px] text-teal-700">活動中新增</span>
+          </span>
+          <span class="tabular-nums text-slate-500">{{ row.openingRating }}</span>
+          <span class="tabular-nums text-slate-700">{{ row.endingRating }}</span>
+          <span
+            class="min-w-10 text-right font-semibold tabular-nums"
+            :class="row.delta > 0 ? 'text-teal-700' : row.delta < 0 ? 'text-red-500' : 'text-slate-400'"
+          >{{ formatDelta(row.delta) }}</span>
+        </div>
+      </div>
+      <p v-if="g.matches.length === 0" class="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
+        沒有完成的比賽
+      </p>
       <ul class="space-y-2">
         <li
           v-for="m in g.matches"
@@ -167,13 +217,19 @@ function onDelete(m: Match) {
           </div>
           <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
             <div class="flex flex-wrap justify-end gap-1">
-              <PlayerChip
+              <div
                 v-for="id in m.teamA"
                 :key="id"
-                :name="player(id)?.name ?? '?'"
-                :color="player(id)?.color ?? '#888'"
-                small
-              />
+                class="flex flex-col items-center gap-0.5"
+              >
+                <span
+                  v-if="matchDelta(g.sessionId, m.id, id) !== undefined"
+                  class="text-[10px] font-semibold tabular-nums text-slate-500"
+                >
+                  {{ formatDelta(matchDelta(g.sessionId, m.id, id)!) }}
+                </span>
+                <PlayerChip :name="player(id)?.name ?? '?'" :color="player(id)?.color ?? '#888'" small />
+              </div>
             </div>
             <div class="text-center text-lg font-bold tabular-nums" :class="m.scoreA > m.scoreB ? '' : ''">
               <template v-if="editing === m.id">
@@ -188,13 +244,19 @@ function onDelete(m: Match) {
               </template>
             </div>
             <div class="flex flex-wrap gap-1">
-              <PlayerChip
+              <div
                 v-for="id in m.teamB"
                 :key="id"
-                :name="player(id)?.name ?? '?'"
-                :color="player(id)?.color ?? '#888'"
-                small
-              />
+                class="flex flex-col items-center gap-0.5"
+              >
+                <span
+                  v-if="matchDelta(g.sessionId, m.id, id) !== undefined"
+                  class="text-[10px] font-semibold tabular-nums text-slate-500"
+                >
+                  {{ formatDelta(matchDelta(g.sessionId, m.id, id)!) }}
+                </span>
+                <PlayerChip :name="player(id)?.name ?? '?'" :color="player(id)?.color ?? '#888'" small />
+              </div>
             </div>
           </div>
           <div v-if="editing === m.id" class="mt-2 flex items-center justify-end gap-2">

@@ -5,6 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addPlayer,
+  activePlayers,
+  archivePlayer,
   clearAllHistory,
   clearSession,
   data,
@@ -17,6 +19,7 @@ import {
   overrideRating,
   proposeRound,
   ratingReportsBySession,
+  restorePlayer,
   startSession,
   submitScore,
   ui,
@@ -119,6 +122,26 @@ describe('活動 rating 邊界', () => {
         .matchChanges.get(firstMatch.id)![p1.id],
     ).toBe(-originalDelta)
     expect(ratingReportsBySession.value.get(secondSession.id)).toBeTruthy()
+  })
+})
+
+describe('球員封存', () => {
+  it('活動中禁止封存；活動後保留資料並可還原', () => {
+    const player = addPlayer('小明', 1500)
+    startSession([player.id])
+
+    expect(archivePlayer(player.id)).toBe(false)
+    expect(player.archivedAt).toBeUndefined()
+
+    endSession()
+    expect(archivePlayer(player.id)).toBe(true)
+    expect(player.archivedAt).toEqual(expect.any(Number))
+    expect(data.players.some((candidate) => candidate.id === player.id)).toBe(true)
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(false)
+
+    expect(restorePlayer(player.id)).toBe(true)
+    expect(player.archivedAt).toBeUndefined()
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(true)
   })
 })
 

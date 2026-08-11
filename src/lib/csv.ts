@@ -60,10 +60,13 @@ function splitRecords(text: string): string[] {
 const joinIds = (ids: readonly string[]) => ids.join('|')
 const splitIds = (s: string) => (s === '' ? [] : s.split('|'))
 
-const PLAYER_HEADER = ['id', 'name', 'color', 'rating', 'rd', 'vol', 'initialRating', 'createdAt']
+const PLAYER_HEADER = ['id', 'name', 'color', 'rating', 'rd', 'vol', 'initialRating', 'createdAt', 'archivedAt']
 const OVERRIDE_HEADER = ['id', 'playerId', 'rating', 'at']
 const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
-const SESSION_HEADER = ['id', 'name', 'startedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active']
+const SESSION_HEADER = [
+  'id', 'name', 'startedAt', 'endedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active',
+  'participantIds', 'addedDuringSessionIds', 'openingRatings',
+]
 const MATCH_HEADER = ['id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters']
 
 export function exportCsv(data: AppData): string {
@@ -71,7 +74,7 @@ export function exportCsv(data: AppData): string {
   lines.push('[players]', PLAYER_HEADER.join(','))
   for (const p of data.players) {
     lines.push(
-      [p.id, p.name, p.color, p.rating, p.rd, p.vol, p.initialRating, p.createdAt].map(esc).join(','),
+      [p.id, p.name, p.color, p.rating, p.rd, p.vol, p.initialRating, p.createdAt, p.archivedAt ?? ''].map(esc).join(','),
     )
   }
   lines.push('[overrides]', OVERRIDE_HEADER.join(','))
@@ -85,7 +88,12 @@ export function exportCsv(data: AppData): string {
   lines.push('[sessions]', SESSION_HEADER.join(','))
   for (const s of data.sessions) {
     lines.push(
-      [s.id, s.name, s.startedAt, joinIds(s.presentIds), joinIds(s.leftIds), joinIds(s.volunteerRest), s.active]
+      [
+        s.id, s.name, s.startedAt, s.endedAt ?? '', joinIds(s.presentIds),
+        joinIds(s.leftIds), joinIds(s.volunteerRest), s.active,
+        joinIds(s.participantIds ?? []), joinIds(s.addedDuringSessionIds ?? []),
+        s.openingRatings ? JSON.stringify(s.openingRatings) : '',
+      ]
         .map(esc)
         .join(','),
     )
@@ -114,6 +122,8 @@ export function importCsv(text: string): AppData {
     }
     return n
   }
+  const optionalNum = (s: string | undefined, field: string): number | undefined =>
+    s == null || s === '' ? undefined : num(s, field)
 
   for (const raw of splitRecords(text)) {
     const line = raw.trim() === '' ? '' : raw
@@ -144,6 +154,8 @@ export function importCsv(text: string): AppData {
         initialRating: num(row.initialRating, 'initialRating'),
         createdAt: num(row.createdAt, 'createdAt'),
       }
+      const archivedAt = optionalNum(row.archivedAt, 'archivedAt')
+      if (archivedAt !== undefined) p.archivedAt = archivedAt
       if (!p.id || !p.name) throw new Error('players 區段缺少 id 或 name')
       data.players.push(p)
     } else if (section === 'overrides') {
@@ -173,6 +185,27 @@ export function importCsv(text: string): AppData {
         leftIds: splitIds(row.leftIds ?? ''),
         volunteerRest: splitIds(row.volunteerRest ?? ''),
         active: row.active === 'true',
+      }
+      const endedAt = optionalNum(row.endedAt, 'endedAt')
+      if (endedAt !== undefined) s.endedAt = endedAt
+      if (row.participantIds !== undefined) s.participantIds = splitIds(row.participantIds)
+      if (row.addedDuringSessionIds !== undefined) {
+        s.addedDuringSessionIds = splitIds(row.addedDuringSessionIds)
+      }
+      if (row.openingRatings) {
+        try {
+          const parsed = JSON.parse(row.openingRatings) as Record<string, { rating: number; rd: number; vol: number }>
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            Object.values(parsed).some(
+              (state) => !state || !Number.isFinite(state.rating) || !Number.isFinite(state.rd) || !Number.isFinite(state.vol),
+            )
+          ) throw new Error('invalid snapshot')
+          s.openingRatings = parsed
+        } catch {
+          throw new Error('欄位 openingRatings 不是有效的活動開場狀態')
+        }
       }
       data.sessions.push(s)
     } else if (section === 'matches') {

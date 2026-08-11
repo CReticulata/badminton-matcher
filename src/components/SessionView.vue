@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import {
+  activePlayers,
   currentSession,
-  data,
   endSession,
   joinSession,
   leaveSession,
@@ -39,7 +39,7 @@ const presentPlayers = computed(() =>
     .filter((p): p is NonNullable<typeof p> => !!p),
 )
 const absentPlayers = computed(() =>
-  data.players.filter((p) => !sess.value?.presentIds.includes(p.id)),
+  activePlayers.value.filter((p) => !sess.value?.presentIds.includes(p.id)),
 )
 
 function onPropose() {
@@ -61,11 +61,11 @@ function onEnd() {
     <template v-if="!sess">
       <h2 class="mb-1 text-lg font-bold">開新場次</h2>
       <p class="mb-4 text-sm text-slate-500">勾選今日出席的人（中途也可再加入）</p>
-      <p v-if="data.players.length === 0" class="py-10 text-center text-sm text-slate-500">
+      <p v-if="activePlayers.length === 0" class="py-10 text-center text-sm text-slate-500">
         全域名單是空的，請先到「參賽者」頁新增
       </p>
       <ul class="mb-4 space-y-2">
-        <li v-for="p in data.players" :key="p.id">
+        <li v-for="p in activePlayers" :key="p.id">
           <label
             class="flex cursor-pointer items-center gap-3 rounded-xl border bg-white p-3 shadow-sm"
             :class="checked.has(p.id) ? 'border-teal-600 ring-1 ring-teal-600' : 'border-slate-200'"
