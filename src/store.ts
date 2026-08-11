@@ -123,7 +123,7 @@ const currentSessionMatches = computed(() => {
 export const ratingReportsBySession = computed(() => {
   const reports = new Map<string, NonNullable<ReturnType<typeof sessionRatingReport>>>()
   for (const session of data.sessions) {
-    const report = sessionRatingReport(session, data.matches)
+    const report = sessionRatingReport(session, data.matches, data.overrides, data.baselines)
     if (report) reports.set(session.id, report)
   }
   return reports

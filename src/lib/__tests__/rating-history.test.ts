@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sessionRatingReport } from '../rating-history'
-import type { Match, Session } from '../../types'
+import type { Match, RatingBaseline, RatingOverride, Session } from '../../types'
 
 const session: Session = {
   id: 's1',
@@ -61,6 +61,42 @@ describe('sessionRatingReport', () => {
       delta: 0,
       addedDuringSession: false,
     })
+  })
+
+  it('重播活動時間窗內的手動覆寫與固化基準事件', () => {
+    const overrides: RatingOverride[] = [
+      { id: 'o1', playerId: 'a', rating: 1700, at: 200 },
+    ]
+    const baselines: RatingBaseline[] = [
+      { id: 'b1', playerId: 'b', rating: 1300, rd: 120, vol: 0.05, at: 200 },
+    ]
+
+    const report = sessionRatingReport(
+      session,
+      [match('m1', 200, ['a'], ['b'], 21, 18)],
+      overrides,
+      baselines,
+    )!
+
+    expect(report.summary.find((row) => row.playerId === 'a')).toMatchObject({
+      openingRating: 1500,
+      endingRating: 1700,
+      delta: 200,
+    })
+    expect(report.summary.find((row) => row.playerId === 'b')).toMatchObject({
+      openingRating: 1500,
+      endingRating: 1300,
+      delta: -200,
+    })
+  })
+
+  it('不納入活動 endedAt 之後的同 session 比賽', () => {
+    const report = sessionRatingReport(session, [
+      match('late', 600, ['a'], ['b'], 21, 18),
+    ])!
+
+    expect(report.matchChanges.has('late')).toBe(false)
+    expect(report.summary.every((row) => row.delta === 0)).toBe(true)
   })
 
   it('開場狀態不完整時不產生活動報告', () => {
