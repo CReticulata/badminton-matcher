@@ -124,6 +124,27 @@ describe('活動 rating 邊界', () => {
     ).toBe(-originalDelta)
     expect(ratingReportsBySession.value.get(secondSession.id)).toBeTruthy()
   })
+
+  it('兩個活動 startedAt 相同（同一毫秒）時，以後建立者為最新活動，修改前一活動仍不穿透', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const p1 = addPlayer('小明', 1500)
+    const p2 = addPlayer('阿華', 1500)
+
+    startSession([p1.id, p2.id])
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    const firstMatch = data.matches[0]!
+    endSession()
+
+    startSession([p1.id, p2.id])
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    endSession()
+    const currentAfterSecond = [p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]
+
+    expect(editMatchScore(firstMatch.id, 10, 21)).toBeNull()
+    expect([p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]).toEqual(currentAfterSecond)
+  })
 })
 
 describe('球員封存', () => {

@@ -412,19 +412,36 @@ function applyRatingStates(states: ReadonlyMap<string, GlickoState>) {
 }
 
 function runFullRecalc() {
+  // startedAt 相同時以陣列位置為準（sessions 依建立順序 append，越後面越新）
   const latestSession = data.sessions
     .filter((session) => ratingReportsBySession.value.has(session.id))
-    .sort((a, b) => b.startedAt - a.startedAt)[0]
+    .reduce<Session | undefined>(
+      (latest, session) => (!latest || session.startedAt >= latest.startedAt ? session : latest),
+      undefined,
+    )
   if (latestSession) {
     const report = ratingReportsBySession.value.get(latestSession.id)!
     const sessionMatches = data.matches.filter((match) => match.sessionId === latestSession.id)
     const boundaryAt =
       latestSession.endedAt ??
       Math.max(latestSession.startedAt, ...sessionMatches.map((match) => match.at))
+    // 較舊場次的比賽已包含在最新活動的 openingRatings 內，不可依時間戳重播
+    // （同一毫秒時 at >= boundaryAt 會誤把前一活動的比賽再套用一次）
+    const sessionRank = new Map(data.sessions.map((session, index) => [session.id, index]))
+    const latestRank = sessionRank.get(latestSession.id)!
+    const afterLatestSession = (match: Match): boolean => {
+      const rank = sessionRank.get(match.sessionId)
+      if (rank === undefined) return match.at >= boundaryAt
+      const session = data.sessions[rank]!
+      return (
+        session.startedAt > latestSession.startedAt ||
+        (session.startedAt === latestSession.startedAt && rank > latestRank)
+      )
+    }
     const states = replayRatings(
       report.endingStates,
       data.matches.filter(
-        (match) => match.sessionId !== latestSession.id && match.at >= boundaryAt,
+        (match) => match.sessionId !== latestSession.id && afterLatestSession(match),
       ),
       data.overrides.filter((override) => override.at >= boundaryAt),
       data.baselines.filter((baseline) => baseline.at >= boundaryAt),
