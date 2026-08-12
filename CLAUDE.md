@@ -9,7 +9,7 @@
 - 分支與發版：GitHub `CReticulata/badminton-matcher`，Cloudflare Pages Git 整合——push `main` 即自動建置部署（build: `pnpm build`、output: `dist`），正式站 https://badminton-matcher.creticulata.dev（2026-08-06 上線）
 - 演算法純函式在 `src/lib/`（glicko2.ts、matchmaking.ts、csv.ts、color.ts），改動必須跑 vitest；Glicko-2 為自行實作（tau 0.5，論文範例有測試鎖住），禁用第三方 glicko 套件
 - 全域 store 在 `src/store.ts`（Vue reactivity，非 pinia）；UI 流程用 `ui.view`＋overlay 狀態，無 vue-router
-- 歷史修改/刪除後必呼叫全量重算（`recalcAll`，含手動覆寫事件重播），保證 rating 與紀錄一致
+- 歷史修改/刪除後必呼叫重算流程：有可靠活動快照時從該活動固定開場狀態重播，且不得穿透下一活動邊界；無快照時才使用 `recalcAll`，並納入手動覆寫與固化基準事件
 
 ## 驗證方式
 `pnpm test` 全綠 → `pnpm build` 零錯誤 → `pnpm dev` 開瀏覽器實走：新增參賽者 → 開場次 → 產生分組 → 開始比賽 → 輸入比分 → 歷史頁改分數確認 rating 重算。

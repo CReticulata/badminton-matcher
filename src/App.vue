@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ui } from "./store";
+import { persistenceError, ui } from "./store";
 import SessionView from "./components/SessionView.vue";
 import PlayersView from "./components/PlayersView.vue";
 import HistoryView from "./components/HistoryView.vue";
@@ -23,6 +23,14 @@ const tabs = [
         <h1 class="text-base font-bold text-teal-800">羽球對戰分配機</h1>
       </div>
     </header>
+
+    <div
+      v-if="persistenceError"
+      role="alert"
+      class="mx-auto mt-3 max-w-2xl rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+    >
+      {{ persistenceError }}
+    </div>
 
     <main>
       <SessionView v-if="ui.view === 'session'" />

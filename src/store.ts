@@ -1,7 +1,7 @@
 /**
  * 全域 store：Vue reactivity + localStorage 持久化。
  */
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { AppData, Match, Mode, Player, RoundProposal, Session } from './types'
 import {
   DEFAULT_RD,
@@ -9,6 +9,7 @@ import {
   OVERRIDE_RD,
   applyMatch,
   recalcAll,
+  replayRatings,
   type GlickoState,
 } from './lib/glicko2'
 import {
@@ -18,6 +19,8 @@ import {
 } from './lib/matchmaking'
 import { nextDefaultColor } from './lib/color'
 import { exportCsv, importCsv } from './lib/csv'
+import { sessionRatingReport } from './lib/rating-history'
+import { migrateAppData } from './lib/migration'
 
 const STORAGE_KEY = 'badminton-matcher:v1'
 
@@ -53,13 +56,13 @@ function loadData(): AppData {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const d = JSON.parse(raw) as AppData
-      return {
+      return migrateAppData({
         players: d.players ?? [],
         sessions: d.sessions ?? [],
         matches: d.matches ?? [],
         overrides: d.overrides ?? [],
         baselines: d.baselines ?? [],
-      }
+      })
     }
   } catch {
     /* 壞資料視為空 */
@@ -69,15 +72,23 @@ function loadData(): AppData {
 
 export const data = reactive<AppData>(loadData())
 
+export const persistenceError = ref<string | null>(null)
+
+export function persistData(): boolean {
+  if (typeof localStorage === 'undefined') return true
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    persistenceError.value = null
+    return true
+  } catch {
+    persistenceError.value = '資料尚未儲存到此裝置，請先匯出 CSV 備份並釋放瀏覽器儲存空間。'
+    return false
+  }
+}
+
 watch(
   data,
-  () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    } catch {
-      /* 空間不足等錯誤：忽略，資料量極小不太可能發生 */
-    }
-  },
+  persistData,
   { deep: true },
 )
 
@@ -108,10 +119,22 @@ export const playerById = computed(() => {
   return m
 })
 
+export const activePlayers = computed(() => data.players.filter((player) => player.archivedAt === undefined))
+export const archivedPlayers = computed(() => data.players.filter((player) => player.archivedAt !== undefined))
+
 const currentSessionMatches = computed(() => {
   const sessionId = currentSession.value?.id
   if (!sessionId) return []
   return data.matches.filter((match) => match.sessionId === sessionId)
+})
+
+export const ratingReportsBySession = computed(() => {
+  const reports = new Map<string, NonNullable<ReturnType<typeof sessionRatingReport>>>()
+  for (const session of data.sessions) {
+    const report = sessionRatingReport(session, data.matches, data.overrides, data.baselines)
+    if (report) reports.set(session.id, report)
+  }
+  return reports
 })
 
 /** 全期比賽/休息次數（參賽者列表用） */
@@ -164,6 +187,13 @@ export function addPlayer(name: string, initialRating: number): Player {
     createdAt: Date.now(),
   }
   data.players.push(p)
+  const session = currentSession.value
+  if (session) {
+    session.openingRatings ??= {}
+    session.openingRatings[p.id] = { rating: p.rating, rd: p.rd, vol: p.vol }
+    session.addedDuringSessionIds ??= []
+    session.addedDuringSessionIds.push(p.id)
+  }
   return p
 }
 
@@ -178,31 +208,34 @@ export function setPlayerColor(id: string, color: string) {
 }
 
 /** 手動覆寫 rating：RD 重設為高值，並記錄事件供全量重算重播 */
-export function overrideRating(id: string, rating: number) {
+export function overrideRating(id: string, rating: number): boolean {
+  if (currentSession.value) return false
   const p = playerById.value.get(id)
-  if (!p) return
+  if (!p) return false
   data.overrides.push({ id: genId(), playerId: id, rating, at: Date.now() })
   p.rating = rating
   p.rd = OVERRIDE_RD
   p.vol = DEFAULT_VOL
-}
-
-/** 僅允許刪除沒有任何比賽紀錄的人 */
-export function removePlayer(id: string): boolean {
-  const used = data.matches.some(
-    (m) => m.teamA.includes(id) || m.teamB.includes(id) || m.resters.includes(id),
-  )
-  if (used) return false
-  data.players = data.players.filter((p) => p.id !== id) as typeof data.players
-  data.overrides = data.overrides.filter((o) => o.playerId !== id) as typeof data.overrides
-  data.baselines = data.baselines.filter((b) => b.playerId !== id) as typeof data.baselines
-  for (const s of data.sessions) {
-    s.presentIds = s.presentIds.filter((x) => x !== id)
-    s.leftIds = s.leftIds.filter((x) => x !== id)
-    s.volunteerRest = s.volunteerRest.filter((x) => x !== id)
-  }
   return true
 }
+
+export function archivePlayer(id: string): boolean {
+  if (currentSession.value) return false
+  const player = playerById.value.get(id)
+  if (!player || player.archivedAt) return false
+  player.archivedAt = Date.now()
+  return true
+}
+
+export function restorePlayer(id: string): boolean {
+  const p = data.players.find((player) => player.id === id)
+  if (!p || p.archivedAt === undefined) return false
+  delete p.archivedAt
+  return true
+}
+
+/** @deprecated 刪除已改為可還原的封存；保留給既有呼叫端相容。 */
+export const removePlayer = archivePlayer
 
 // ---------- 場次 ----------
 
@@ -213,6 +246,14 @@ export function startSession(presentIds: string[]) {
     id: genId(),
     name: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} 場次`,
     startedAt: Date.now(),
+    openingRatings: Object.fromEntries(
+      data.players.map((player) => [
+        player.id,
+        { rating: player.rating, rd: player.rd, vol: player.vol },
+      ]),
+    ),
+    participantIds: [...presentIds],
+    addedDuringSessionIds: [],
     presentIds: [...presentIds],
     leftIds: [],
     volunteerRest: [],
@@ -224,7 +265,10 @@ export function startSession(presentIds: string[]) {
 
 export function endSession() {
   const s = currentSession.value
-  if (s) s.active = false
+  if (s) {
+    s.active = false
+    s.endedAt = Date.now()
+  }
   ui.pending = null
   ui.live = null
   ui.scoring = false
@@ -233,6 +277,8 @@ export function endSession() {
 export function joinSession(playerId: string) {
   const s = currentSession.value
   if (!s) return
+  s.participantIds ??= [...s.presentIds, ...s.leftIds]
+  if (!s.participantIds.includes(playerId)) s.participantIds.push(playerId)
   if (!s.presentIds.includes(playerId)) s.presentIds.push(playerId)
   s.leftIds = s.leftIds.filter((x) => x !== playerId)
 }
@@ -355,16 +401,56 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
 
 // ---------- 歷史修改（全量重算） ----------
 
-function runFullRecalc() {
-  const states = recalcAll(data.players, data.matches, data.overrides, data.baselines)
-  for (const p of data.players) {
-    const s = states.get(p.id)
-    if (s) {
-      p.rating = s.rating
-      p.rd = s.rd
-      p.vol = s.vol
-    }
+function applyRatingStates(states: ReadonlyMap<string, GlickoState>) {
+  for (const player of data.players) {
+    const state = states.get(player.id)
+    if (!state) continue
+    player.rating = state.rating
+    player.rd = state.rd
+    player.vol = state.vol
   }
+}
+
+function runFullRecalc() {
+  // startedAt 相同時以陣列位置為準（sessions 依建立順序 append，越後面越新）
+  const latestSession = data.sessions
+    .filter((session) => ratingReportsBySession.value.has(session.id))
+    .reduce<Session | undefined>(
+      (latest, session) => (!latest || session.startedAt >= latest.startedAt ? session : latest),
+      undefined,
+    )
+  if (latestSession) {
+    const report = ratingReportsBySession.value.get(latestSession.id)!
+    const sessionMatches = data.matches.filter((match) => match.sessionId === latestSession.id)
+    const boundaryAt =
+      latestSession.endedAt ??
+      Math.max(latestSession.startedAt, ...sessionMatches.map((match) => match.at))
+    // 較舊場次的比賽已包含在最新活動的 openingRatings 內，不可依時間戳重播
+    // （同一毫秒時 at >= boundaryAt 會誤把前一活動的比賽再套用一次）
+    const sessionRank = new Map(data.sessions.map((session, index) => [session.id, index]))
+    const latestRank = sessionRank.get(latestSession.id)!
+    const afterLatestSession = (match: Match): boolean => {
+      const rank = sessionRank.get(match.sessionId)
+      if (rank === undefined) return match.at >= boundaryAt
+      const session = data.sessions[rank]!
+      return (
+        session.startedAt > latestSession.startedAt ||
+        (session.startedAt === latestSession.startedAt && rank > latestRank)
+      )
+    }
+    const states = replayRatings(
+      report.endingStates,
+      data.matches.filter(
+        (match) => match.sessionId !== latestSession.id && afterLatestSession(match),
+      ),
+      data.overrides.filter((override) => override.at >= boundaryAt),
+      data.baselines.filter((baseline) => baseline.at >= boundaryAt),
+    )
+    applyRatingStates(states)
+    return
+  }
+  const states = recalcAll(data.players, data.matches, data.overrides, data.baselines)
+  applyRatingStates(states)
 }
 
 export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {
@@ -455,7 +541,7 @@ export function downloadCsvBackup() {
 
 /** 覆蓋還原；格式錯誤時 throw */
 export function importCsvText(text: string) {
-  const parsed = importCsv(text)
+  const parsed = migrateAppData(importCsv(text))
   data.players = parsed.players as typeof data.players
   data.sessions = parsed.sessions as typeof data.sessions
   data.matches = parsed.matches as typeof data.matches

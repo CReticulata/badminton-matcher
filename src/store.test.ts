@@ -5,6 +5,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addPlayer,
+  activePlayers,
+  archivedPlayers,
+  archivePlayer,
   clearAllHistory,
   clearSession,
   data,
@@ -12,9 +15,14 @@ import {
   endSession,
   exportCsvText,
   importCsvText,
+  joinSession,
+  leaveSession,
   overrideRating,
   proposeRound,
+  ratingReportsBySession,
+  restorePlayer,
   startSession,
+  submitScore,
   ui,
 } from './store'
 import { recalcAll } from './lib/glicko2'
@@ -36,6 +44,131 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('活動 rating 邊界', () => {
+  it('開始活動時保存所有既有球員狀態，並固定首次加入順序與結束時間', () => {
+    const p1 = addPlayer('小明', 1500)
+    const p2 = addPlayer('阿華', 1700)
+
+    startSession([p1.id])
+    const session = data.sessions[0]!
+
+    expect(session.openingRatings).toEqual({
+      [p1.id]: { rating: p1.rating, rd: p1.rd, vol: p1.vol },
+      [p2.id]: { rating: p2.rating, rd: p2.rd, vol: p2.vol },
+    })
+    expect(session.participantIds).toEqual([p1.id])
+    expect(session.addedDuringSessionIds).toEqual([])
+
+    const late = addPlayer('遲到新球員', 1300)
+    expect(session.openingRatings![late.id]).toEqual({
+      rating: late.rating,
+      rd: late.rd,
+      vol: late.vol,
+    })
+    expect(session.addedDuringSessionIds).toEqual([late.id])
+
+    joinSession(late.id)
+    leaveSession(late.id)
+    joinSession(late.id)
+    expect(session.participantIds).toEqual([p1.id, late.id])
+
+    endSession()
+    expect(session.active).toBe(false)
+    expect(session.endedAt).toEqual(expect.any(Number))
+  })
+
+  it('活動進行中禁止手動覆寫 rating', () => {
+    const player = addPlayer('小明', 1500)
+    startSession([player.id])
+
+    expect(overrideRating(player.id, 1800)).toBe(false)
+    expect(player.rating).toBe(1500)
+    expect(data.overrides).toHaveLength(0)
+
+    endSession()
+    expect(overrideRating(player.id, 1800)).toBe(true)
+    expect(player.rating).toBe(1800)
+    expect(data.overrides).toHaveLength(1)
+  })
+
+  it('修改前一活動不穿透下一活動，但會更新前一活動的單場變動', () => {
+    const p1 = addPlayer('小明', 1500)
+    const p2 = addPlayer('阿華', 1500)
+
+    startSession([p1.id, p2.id])
+    const firstSession = data.sessions[0]!
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    const firstMatch = data.matches[0]!
+    endSession()
+
+    startSession([p1.id, p2.id])
+    const secondSession = data.sessions[1]!
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    endSession()
+    const currentAfterSecond = [p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]
+    const originalDelta = ratingReportsBySession.value
+      .get(firstSession.id)!
+      .matchChanges.get(firstMatch.id)![p1.id]
+
+    expect(editMatchScore(firstMatch.id, 10, 21)).toBeNull()
+
+    expect([p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]).toEqual(currentAfterSecond)
+    expect(
+      ratingReportsBySession.value
+        .get(firstSession.id)!
+        .matchChanges.get(firstMatch.id)![p1.id],
+    ).toBe(-originalDelta)
+    expect(ratingReportsBySession.value.get(secondSession.id)).toBeTruthy()
+  })
+
+  it('兩個活動 startedAt 相同（同一毫秒）時，以後建立者為最新活動，修改前一活動仍不穿透', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const p1 = addPlayer('小明', 1500)
+    const p2 = addPlayer('阿華', 1500)
+
+    startSession([p1.id, p2.id])
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    const firstMatch = data.matches[0]!
+    endSession()
+
+    startSession([p1.id, p2.id])
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    expect(submitScore(21, 10)).toBeNull()
+    endSession()
+    const currentAfterSecond = [p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]
+
+    expect(editMatchScore(firstMatch.id, 10, 21)).toBeNull()
+    expect([p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]).toEqual(currentAfterSecond)
+  })
+})
+
+describe('球員封存', () => {
+  it('活動中禁止封存；活動後保留資料並可還原', () => {
+    const player = addPlayer('小明', 1500)
+    startSession([player.id])
+
+    expect(archivePlayer(player.id)).toBe(false)
+    expect(player.archivedAt).toBeUndefined()
+
+    endSession()
+    expect(archivePlayer(player.id)).toBe(true)
+    expect(player.archivedAt).toEqual(expect.any(Number))
+    expect(data.players.some((candidate) => candidate.id === player.id)).toBe(true)
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(false)
+
+    expect(restorePlayer(player.id)).toBe(true)
+    expect(player.archivedAt).toBeUndefined()
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(true)
+
+    data.players.find((candidate) => candidate.id === player.id)!.archivedAt = 0
+    expect(activePlayers.value.some((candidate) => candidate.id === player.id)).toBe(false)
+    expect(archivedPlayers.value.some((candidate) => candidate.id === player.id)).toBe(true)
+  })
 })
 
 describe('proposeRound 連續上場優先級', () => {

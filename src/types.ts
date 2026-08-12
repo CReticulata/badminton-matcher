@@ -1,5 +1,11 @@
 export type Mode = 'doubles' | 'singles'
 
+export interface RatingSnapshot {
+  rating: number
+  rd: number
+  vol: number
+}
+
 /** 全域參賽者：rating 跨場次累積 */
 export interface Player {
   id: string
@@ -11,6 +17,7 @@ export interface Player {
   /** 建立時依 1–18 級選擇的初始 rating，全量重算的起點 */
   initialRating: number
   createdAt: number
+  archivedAt?: number
 }
 
 /** 手動覆寫 rating 的事件（全量重算時依時間序重播） */
@@ -54,6 +61,15 @@ export interface Session {
   id: string
   name: string
   startedAt: number
+  endedAt?: number
+  /** 活動內 rating 重算的固定起點；舊資料遷移前可能缺少 */
+  openingRatings?: Record<string, RatingSnapshot>
+  /** 依首次加入活動的順序保存，離場或重新加入不會移除／重排 */
+  participantIds?: string[]
+  /** false 表示舊資料只能推測參賽者集合，無法可靠還原首次加入順序 */
+  participantOrderReliable?: boolean
+  /** 活動開始後才建立的球員 */
+  addedDuringSessionIds?: string[]
   /** 目前在場者 */
   presentIds: string[]
   /** 已標記離場者 */

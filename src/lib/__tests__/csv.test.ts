@@ -23,6 +23,7 @@ const sample: AppData = {
       vol: 0.06,
       initialRating: 1300,
       createdAt: 1001,
+      archivedAt: 0,
     },
   ],
   sessions: [
@@ -30,6 +31,13 @@ const sample: AppData = {
       id: 's1',
       name: '2026/8/5 場次',
       startedAt: 2000,
+      openingRatings: {
+        p1: { rating: 1500, rd: 350, vol: 0.06 },
+        p2: { rating: 1300, rd: 350, vol: 0.06 },
+      },
+      participantIds: ['p1', 'p2'],
+      participantOrderReliable: false,
+      addedDuringSessionIds: [],
       presentIds: ['p1', 'p2'],
       leftIds: [],
       volunteerRest: ['p2'],
@@ -69,6 +77,21 @@ describe('CSV 匯出/匯入', () => {
     }
     const back = importCsv(exportCsv(data))
     expect(back).toEqual(data)
+  })
+
+  it('相容沒有 participantOrderReliable 欄位的舊 session CSV', () => {
+    const legacy = [
+      '[players]',
+      'id,name,color,rating,rd,vol,initialRating,createdAt',
+      'p1,小明,#ef4444,1500,350,0.06,1500,1000',
+      '[sessions]',
+      'id,name,startedAt,endedAt,presentIds,leftIds,volunteerRest,active,participantIds,addedDuringSessionIds,openingRatings',
+      's1,舊活動,2000,3000,p1,,,false,p1,,',
+    ].join('\n')
+
+    const back = importCsv(legacy)
+    expect(back.sessions[0]!.participantIds).toEqual(['p1'])
+    expect(back.sessions[0]!.participantOrderReliable).toBeUndefined()
   })
 
   it('空內容或格式錯誤會 throw', () => {

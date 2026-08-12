@@ -177,6 +177,19 @@ export function recalcAll(
     states.set(p.id, { rating: p.initialRating, rd: DEFAULT_RD, vol: DEFAULT_VOL })
   }
 
+  return replayRatings(states, matches, overrides, baselines)
+}
+
+/** 從指定的完整 Glicko 狀態重播事件，供活動開場邊界後續事件使用。 */
+export function replayRatings(
+  initialStates: ReadonlyMap<string, GlickoState>,
+  matches: readonly Match[],
+  overrides: readonly RatingOverride[] = [],
+  baselines: readonly RatingBaseline[] = [],
+): Map<string, GlickoState> {
+  const states = new Map<string, GlickoState>()
+  for (const [id, state] of initialStates) states.set(id, { ...state })
+
   type Event =
     | { at: number; kind: 'match'; match: Match }
     | { at: number; kind: 'override'; override: RatingOverride }
