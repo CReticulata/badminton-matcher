@@ -27,7 +27,7 @@
 - 活動時間窗內的 match、`RatingOverride`、`RatingBaseline` 都屬 replay event，必須按既定時間順序處理。同 timestamp 時保留 match → override → baseline 的穩定順序。
 - 不能只靠 timestamp 判斷跨活動先後；活動開始時間相同時，以 session 建立順序／rank 區分，避免較早活動被重播兩次或修改穿透下一活動。
 - match 歸屬以 `sessionId` 為主，已結束活動排除 `match.at > endedAt`；為相容舊資料，不要求 match timestamp 必須晚於 synthetic `startedAt`。
-- 舊資料只有在能可靠重建時才建立 opening snapshot。若只能推測參賽者集合、無法還原首次加入順序，保留可靠的單場 delta 與 ending state，但不顯示依加入順序破同分的整日摘要。
+- 舊資料只有在能重建活動開始時的 rating state 時才建立 opening snapshot。rating state 可重建性與參賽者首次加入順序可靠性分開判斷：即使順序只能推測，仍可保留 snapshot、單場 delta 與 ending state，但必須標記 `participantOrderReliable: false`，並隱藏依加入順序破同分的整日摘要。
 - 單場 delta 是「四捨五入後賽後 rating − 四捨五入後賽前 rating」，只顯示實際上場者；缺乏可靠報告時不可用假的 `0` 代替。
 - 活動進行中禁止手動覆寫 rating 與封存球員。
 
@@ -35,7 +35,7 @@
 
 - localStorage 寫入失敗不可靜默忽略；全域警告維持到後續成功保存完整目前資料為止。
 - CSV schema 擴充必須維持舊欄位缺失時的匯入相容，並 round-trip 保存 opening snapshot、participant reliability、封存 timestamp、override 與 baseline。
-- 不可靠舊資料採保守降級：保留原始歷史，不製造看似完整的 snapshot、delta 或摘要。
+- 不可靠舊資料採保守降級：只輸出可由既有狀態可靠重建的 snapshot／delta；需要未知參賽順序的摘要必須隱藏，不得把推測呈現成可靠結果。
 
 ## Development and verification
 
