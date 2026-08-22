@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { playerById, ui } from '../store'
 import { textColorOn } from '../lib/color'
+import { displayScoringFormat } from '../lib/scoring-format'
 
 const live = computed(() => ui.live)
 const player = (id: string) => playerById.value.get(id)
@@ -74,8 +75,8 @@ const restNames = computed(() => (live.value?.resters ?? []).map(nameOf).join('�
       </div>
     </div>
 
-    <!-- 底部列：休息名單＋結束按鈕 -->
-    <div class="flex items-center gap-3 px-3 py-2">
+    <!-- 底部列：凍結賽制、休息名單＋結束按鈕 -->
+    <div class="flex items-center gap-3 px-3 py-2"><p class="text-xs text-white/70">賽制（已凍結）：{{ displayScoringFormat(live.scoringFormat) }}</p>
       <p v-if="restNames" class="min-w-0 truncate text-sm text-white/50">休息：{{ restNames }}</p>
       <button
         class="ml-auto shrink-0 rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"

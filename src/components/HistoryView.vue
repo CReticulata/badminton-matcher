@@ -12,6 +12,7 @@ import {
 } from '../store'
 import PlayerChip from './PlayerChip.vue'
 import type { Match, Session } from '../types'
+import { displayScoringFormat } from '../lib/scoring-format'
 
 const editing = ref<string | null>(null)
 const editA = ref('')
@@ -165,6 +166,7 @@ function onDelete(m: Match) {
               <button class="text-red-400 hover:text-red-600" @click="onDelete(m)">刪除</button>
             </span>
           </div>
+          <p class="mb-1 text-xs text-slate-500">賽制：{{ displayScoringFormat(m.scoringFormat) }}</p>
           <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
             <div class="flex flex-wrap justify-end gap-1">
               <PlayerChip

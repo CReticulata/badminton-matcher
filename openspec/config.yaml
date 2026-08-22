@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Product: badminton-matcher, a frontend-only browser PWA for fair badminton rotation,
+  rating-balanced teams, score recording, and local history.
+  Stack: Vue 3, TypeScript, Vite, Tailwind CSS v4, Vitest, pnpm 11.22.0.
+  Persistence: browser localStorage and CSV only; no backend or browser Python runtime.
+  Authority: Glicko is the sole production rating and matchmaking authority unless a
+  separate explicit promotion decision is recorded. Research methods and browser shadows
+  are diagnostics-only and must not affect production results.
+  Sources: spec.md is the legacy product baseline; design.md, CONTEXT.md, docs/adr/,
+  docs/features/, and docs/research/ contain current decisions and evidence.
+  Workflow: shared dirty worktree, strict TDD for behavior changes, real browser evidence
+  for Worker claims, and exact reporting of executed verification.
+
+rules:
+  proposal:
+    - State the product problem, intended outcome, scope, and explicit non-goals.
+    - Identify effects on authority, persistence, replay, migration, UI, and browser-only runtime boundaries.
+    - Distinguish research evidence, engineering evidence, and production authorization.
+  specs:
+    - Use normative MUST or SHALL requirements with observable scenarios.
+    - Include failure, unavailable, stale, malformed, and rollback behavior where applicable.
+    - Preserve Glicko authority unless the change contains a separately approved promotion decision.
+    - Never infer missing scoring formats, fabricate historical state, or silently change replay boundaries.
+  design:
+    - Explain browser/runtime and capability boundaries, data lineage, deterministic replay, and migration implications.
+    - Record alternatives considered and why the selected design is safer or simpler.
+    - Keep research/reference code separate from production TypeScript paths.
+  tasks:
+    - Order behavior work as RED test, minimal GREEN implementation, focused closure, then broader verification.
+    - Name the files or bounded surfaces each task may modify.
+    - Include exact validation commands and explicit checks for authority non-interference when relevant.
+
+operations:
+  apply:
+    guidance:
+      - Inspect the shared worktree before editing and preserve unrelated changes.
+      - Implement only tasks in the active OpenSpec change and keep task status current.
+      - Do not execute formal, reserved-seed, migration, promotion, or cutover work without explicit scope authorization.
+  archive:
+    guidance:
+      - Require successful OpenSpec validation and real verification receipts before archive.
+      - Summarize accepted spec changes, remaining limitations, and authority boundaries.

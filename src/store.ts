@@ -1,8 +1,8 @@
 /**
  * 全域 store：Vue reactivity + localStorage 持久化。
  */
-import { computed, reactive, watch } from 'vue'
-import type { AppData, Match, Mode, Player, RoundProposal, Session } from './types'
+import { computed, reactive, ref, watch } from 'vue'
+import type { AppData, LiveMatchContext, Match, Mode, PendingMatchContext, Player, RoundProposal, Session } from './types'
 import {
   DEFAULT_RD,
   DEFAULT_VOL,
@@ -14,8 +14,18 @@ import {
 import { generateRound, type Candidate } from './lib/matchmaking'
 import { nextDefaultColor } from './lib/color'
 import { exportCsv, importCsv } from './lib/csv'
+import { createJ1ShadowAdapter, ordinaryPrepare, type ShadowPort } from './lib/rating-j1/shadow'
+import { normalizeAppData } from './lib/app-data-normalization'
+import { cloneScoringFormat, isLegalEndpoint, type ScoringFormatSnapshot } from './lib/scoring-format'
 
 const STORAGE_KEY = 'badminton-matcher:v1'
+const BACKUP_KEY = 'badminton-matcher:pre-scoring-format-v1'
+const EMPTY_DATA: AppData = { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
+
+export const recoveryState = ref<'ready' | 'blocked'>('ready')
+export const blockedRawData = ref<string | null>(null)
+let lastPersistedRaw = JSON.stringify(EMPTY_DATA)
+let persistenceAvailable = true
 
 const INITIAL_TIERS = [
   '新手階',
@@ -44,23 +54,44 @@ export const INITIAL_LEVELS = INITIAL_TIERS.map((tier, index) => ({
   rating: 800 + index * 100,
 }))
 
+function emptyData(): AppData {
+  return { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
+}
+
+function preserveBackup(raw: string): boolean {
+  try {
+    if (localStorage.getItem(BACKUP_KEY) !== null) return true
+    localStorage.setItem(BACKUP_KEY, raw)
+    return localStorage.getItem(BACKUP_KEY) === raw
+  } catch {
+    return false
+  }
+}
+
+function blockRecovery(raw: string): AppData {
+  recoveryState.value = 'blocked'
+  blockedRawData.value = raw
+  return emptyData()
+}
+
 function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const d = JSON.parse(raw) as AppData
-      return {
-        players: d.players ?? [],
-        sessions: d.sessions ?? [],
-        matches: d.matches ?? [],
-        overrides: d.overrides ?? [],
-        baselines: d.baselines ?? [],
-      }
-    }
+    if (raw === null) return emptyData()
+    const normalized = normalizeAppData(JSON.parse(raw))
+    if (!preserveBackup(raw)) return blockRecovery(raw)
+    lastPersistedRaw = raw
+    return normalized
   } catch {
-    /* 壞資料視為空 */
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw !== null) return blockRecovery(raw)
+    } catch {
+      persistenceAvailable = false
+      /* Storage was unavailable at startup; retain the existing in-memory-only compatibility mode. */
+    }
+    return emptyData()
   }
-  return { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
 }
 
 export const data = reactive<AppData>(loadData())
@@ -68,22 +99,80 @@ export const data = reactive<AppData>(loadData())
 watch(
   data,
   () => {
+    if (recoveryState.value !== 'ready' || !persistenceAvailable) return
+    const candidate = JSON.stringify(data)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      localStorage.setItem(STORAGE_KEY, candidate)
+      lastPersistedRaw = candidate
     } catch {
-      /* 空間不足等錯誤：忽略，資料量極小不太可能發生 */
+      recoveryState.value = 'blocked'
+      blockedRawData.value = lastPersistedRaw
     }
   },
   { deep: true },
 )
 
+function writesAllowed(): boolean {
+  return recoveryState.value === 'ready'
+}
+
+/** Restores a valid CSV candidate atomically while preserving blocked raw data on every failure. */
+export function recoverFromCsvText(text: string): boolean {
+  if (recoveryState.value !== 'blocked' || blockedRawData.value === null) return false
+  let candidate: AppData
+  try {
+    candidate = importCsv(text)
+  } catch {
+    return false
+  }
+  const raw = blockedRawData.value
+  if (!preserveBackup(raw)) return false
+  try {
+    const candidateRaw = JSON.stringify(candidate)
+    localStorage.setItem(STORAGE_KEY, candidateRaw)
+    lastPersistedRaw = candidateRaw
+  } catch {
+    return false
+  }
+  data.players = candidate.players
+  data.sessions = candidate.sessions
+  data.matches = candidate.matches
+  data.overrides = candidate.overrides
+  data.baselines = candidate.baselines
+  blockedRawData.value = null
+  recoveryState.value = 'ready'
+  return true
+}
+
+/** Explicit destructive recovery boundary. */
+export function discardBlockedData(confirmed: boolean): boolean {
+  if (!confirmed || recoveryState.value !== 'blocked' || blockedRawData.value === null) return false
+  const raw = blockedRawData.value
+  if (!preserveBackup(raw)) return false
+  try {
+    const emptyRaw = JSON.stringify(EMPTY_DATA)
+    localStorage.setItem(STORAGE_KEY, emptyRaw)
+    lastPersistedRaw = emptyRaw
+  } catch {
+    return false
+  }
+  data.players = []
+  data.sessions = []
+  data.matches = []
+  data.overrides = []
+  data.baselines = []
+  recoveryState.value = 'ready'
+  blockedRawData.value = null
+  return true
+}
+
 /** UI 流程狀態（不持久化） */
 export const ui = reactive<{
   view: 'session' | 'players' | 'history'
   /** 待確認的分組（分組預覽） */
-  pending: RoundProposal | null
+  pending: PendingMatchContext | null
   /** 進行中的比賽（對戰顯示畫面） */
-  live: RoundProposal | null
+  live: LiveMatchContext | null
   /** 顯示比分輸入 */
   scoring: boolean
   mode: Mode
@@ -91,6 +180,23 @@ export const ui = reactive<{
 
 const genId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+// Optional diagnostics-only capability. It is intentionally outside reactive/persisted authority state.
+let j1Shadow = createJ1ShadowAdapter(null)
+let j1Preparation: { readonly correlationId: string; readonly token: string } | null = null
+let j1PendingCorrelation: string | null = null
+
+function abandonJ1ShadowPreparation(): void {
+  if (j1PendingCorrelation !== null) j1Shadow.invalidate(j1PendingCorrelation)
+  j1PendingCorrelation = null
+  j1Preparation = null
+}
+
+/** Safe test/integration seam: accepts only the capability-limited Worker port, never store state. */
+export function configureJ1Shadow(port: ShadowPort | null): void {
+  abandonJ1ShadowPreparation()
+  j1Shadow = createJ1ShadowAdapter(port)
+}
 
 // ---------- 衍生資料 ----------
 
@@ -146,6 +252,7 @@ export const sessionStats = computed(() => {
 // ---------- 參賽者 ----------
 
 export function addPlayer(name: string, initialRating: number): Player {
+  if (!writesAllowed()) return undefined as unknown as Player
   const p: Player = {
     id: genId(),
     name: name.trim(),
@@ -161,17 +268,20 @@ export function addPlayer(name: string, initialRating: number): Player {
 }
 
 export function renamePlayer(id: string, name: string) {
+  if (!writesAllowed()) return
   const p = playerById.value.get(id)
   if (p && name.trim()) p.name = name.trim()
 }
 
 export function setPlayerColor(id: string, color: string) {
+  if (!writesAllowed()) return
   const p = playerById.value.get(id)
   if (p) p.color = color
 }
 
 /** 手動覆寫 rating：RD 重設為高值，並記錄事件供全量重算重播 */
 export function overrideRating(id: string, rating: number) {
+  if (!writesAllowed()) return
   const p = playerById.value.get(id)
   if (!p) return
   data.overrides.push({ id: genId(), playerId: id, rating, at: Date.now() })
@@ -182,6 +292,7 @@ export function overrideRating(id: string, rating: number) {
 
 /** 僅允許刪除沒有任何比賽紀錄的人 */
 export function removePlayer(id: string): boolean {
+  if (!writesAllowed()) return false
   const used = data.matches.some(
     (m) => m.teamA.includes(id) || m.teamB.includes(id) || m.resters.includes(id),
   )
@@ -199,7 +310,14 @@ export function removePlayer(id: string): boolean {
 
 // ---------- 場次 ----------
 
-export function startSession(presentIds: string[]) {
+function isDeliberateScoringFormat(snapshot: ScoringFormatSnapshot | null | undefined): snapshot is ScoringFormatSnapshot {
+  return snapshot != null && !(snapshot.kind === 'unknown' && snapshot.reason === 'legacy-missing')
+}
+
+export function startSession(presentIds: string[], defaultScoringFormat: ScoringFormatSnapshot): void {
+  if (!writesAllowed()) return
+  if (!isDeliberateScoringFormat(defaultScoringFormat)) throw new Error('An explicit non-legacy scoring format is required')
+  abandonJ1ShadowPreparation()
   for (const s of data.sessions) s.active = false
   const now = new Date()
   data.sessions.push({
@@ -210,12 +328,24 @@ export function startSession(presentIds: string[]) {
     leftIds: [],
     volunteerRest: [],
     active: true,
+    defaultScoringFormat: cloneScoringFormat(defaultScoringFormat),
   })
   ui.pending = null
   ui.live = null
 }
 
+/** Replaces only the prospective session default; null represents an explicit cancelled choice. */
+export function setSessionDefaultScoringFormat(snapshot: ScoringFormatSnapshot | null): boolean {
+  if (!writesAllowed() || !isDeliberateScoringFormat(snapshot)) return false
+  const session = currentSession.value
+  if (!session) return false
+  session.defaultScoringFormat = cloneScoringFormat(snapshot)
+  return true
+}
+
 export function endSession() {
+  if (!writesAllowed()) return
+  abandonJ1ShadowPreparation()
   const s = currentSession.value
   if (s) s.active = false
   ui.pending = null
@@ -224,6 +354,7 @@ export function endSession() {
 }
 
 export function joinSession(playerId: string) {
+  if (!writesAllowed()) return
   const s = currentSession.value
   if (!s) return
   if (!s.presentIds.includes(playerId)) s.presentIds.push(playerId)
@@ -231,6 +362,7 @@ export function joinSession(playerId: string) {
 }
 
 export function leaveSession(playerId: string) {
+  if (!writesAllowed()) return
   const s = currentSession.value
   if (!s) return
   s.presentIds = s.presentIds.filter((x) => x !== playerId)
@@ -239,6 +371,7 @@ export function leaveSession(playerId: string) {
 }
 
 export function toggleVolunteerRest(playerId: string) {
+  if (!writesAllowed()) return
   const s = currentSession.value
   if (!s) return
   if (s.volunteerRest.includes(playerId)) {
@@ -265,11 +398,29 @@ function candidates(): Candidate[] {
   })
 }
 
-/** 產生下一場分組（進入預覽）；人數不足回傳 false */
 export function proposeRound(): boolean {
+  if (!writesAllowed()) return false
+  const session = currentSession.value
+  if (!session || session.defaultScoringFormat.kind === 'unknown' && session.defaultScoringFormat.reason === 'legacy-missing') return false
   const proposal = generateRound(candidates(), ui.mode)
   if (!proposal) return false
-  ui.pending = proposal
+  ui.pending = { ...proposal, scoringFormat: cloneScoringFormat(session.defaultScoringFormat) }
+  return true
+}
+
+/** Selects a detached pre-start override; unavailable once the match has started. */
+export function setPendingScoringFormat(snapshot: ScoringFormatSnapshot): boolean {
+  if (!writesAllowed() || !ui.pending || ui.live || !isDeliberateScoringFormat(snapshot)) return false
+  ui.pending = { mode: ui.pending.mode, teamA: [...ui.pending.teamA], teamB: [...ui.pending.teamB], resters: [...ui.pending.resters], scoringFormat: cloneScoringFormat(snapshot) }
+  return true
+}
+
+/** Removes a pre-start override by taking a fresh copy of the current default. */
+export function resetPendingScoringFormat(): boolean {
+  if (!writesAllowed() || !ui.pending || ui.live) return false
+  const session = currentSession.value
+  if (!session || session.defaultScoringFormat.kind === 'unknown' && session.defaultScoringFormat.reason === 'legacy-missing') return false
+  ui.pending = { mode: ui.pending.mode, teamA: [...ui.pending.teamA], teamB: [...ui.pending.teamB], resters: [...ui.pending.resters], scoringFormat: cloneScoringFormat(session.defaultScoringFormat) }
   return true
 }
 
@@ -280,9 +431,10 @@ export function previewNextRound(): RoundProposal | null {
 
 /** 分組預覽中：交換兩人位置（隊伍 A/B/休息名單皆可） */
 export function swapInPending(idA: string, idB: string) {
-  const p = ui.pending
-  if (!p || idA === idB) return
-  const lists = [p.teamA, p.teamB, p.resters]
+  if (!writesAllowed()) return
+  const pending = ui.pending
+  if (!pending || idA === idB) return
+  const lists = [pending.teamA, pending.teamB, pending.resters]
   const locate = (id: string) => {
     for (const list of lists) {
       const i = list.indexOf(id)
@@ -298,25 +450,41 @@ export function swapInPending(idA: string, idB: string) {
   b.list[b.i] = tmp
 }
 
-export function startMatch() {
-  if (!ui.pending) return
-  ui.live = ui.pending
+export function startMatch(): boolean {
+  if (!writesAllowed() || !ui.pending || ui.live) return false
+  const session = currentSession.value
+  if (!session) return false
+  abandonJ1ShadowPreparation()
+  const pending = ui.pending
+  const live: LiveMatchContext = { mode: pending.mode, teamA: [...pending.teamA], teamB: [...pending.teamB], resters: [...pending.resters], scoringFormat: cloneScoringFormat(pending.scoringFormat) }
+  ui.live = live
   ui.pending = null
+  const correlationId = genId()
+  j1PendingCorrelation = correlationId
+  const adapter = j1Shadow
+  const request = ordinaryPrepare(correlationId, { id: session.id, mode: live.mode, attendeeIds: session.presentIds }, { teamA: live.teamA, teamB: live.teamB, resters: live.resters })
+  // Preparation is deliberately score-free and never participates in the match authority path.
+  void adapter.prepare(request).then((prepared) => {
+    if (adapter === j1Shadow && j1PendingCorrelation === correlationId && ui.live && prepared?.correlationId === correlationId) j1Preparation = prepared
+  }).catch(() => undefined)
+  return true
 }
 
 export function cancelPending() {
+  if (!writesAllowed()) return
   ui.pending = null
 }
 
 /** 賽後輸入比分：寫入紀錄、依實際分組更新 rating 與統計 */
 export function submitScore(scoreA: number, scoreB: number): string | null {
+  if (!writesAllowed()) return '儲存資料需要復原'
   const live = ui.live
   const sess = currentSession.value
   if (!live || !sess) return '沒有進行中的比賽'
   if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
     return '比分必須是非負整數'
   }
-  if (scoreA === scoreB) return '比分不可平手'
+  if (!isLegalEndpoint(live.scoringFormat, scoreA, scoreB)) return '比分不符合此計分賽制的合法終點'
 
   const match: Match = {
     id: genId(),
@@ -328,6 +496,7 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
     scoreA,
     scoreB,
     resters: [...live.resters],
+    scoringFormat: cloneScoringFormat(live.scoringFormat),
   }
   data.matches.push(match)
 
@@ -346,6 +515,12 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
 
   ui.live = null
   ui.scoring = false
+  const prepared = j1Preparation
+  const correlationId = j1PendingCorrelation
+  j1Preparation = null
+  j1PendingCorrelation = null
+  if (prepared && prepared.correlationId === correlationId) j1Shadow.outcome({ kind: 'outcome', correlationId: prepared.correlationId, token: prepared.token, scoreA, scoreB })
+  else if (correlationId !== null) j1Shadow.invalidate(correlationId)
   return null
 }
 
@@ -364,12 +539,13 @@ function runFullRecalc() {
 }
 
 export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {
+  if (!writesAllowed()) return '儲存資料需要復原'
   const m = data.matches.find((x) => x.id === matchId)
   if (!m) return '找不到這場比賽'
   if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
     return '比分必須是非負整數'
   }
-  if (scoreA === scoreB) return '比分不可平手'
+  if (!isLegalEndpoint(m.scoringFormat, scoreA, scoreB)) return '比分不符合此計分賽制的合法終點'
   m.scoreA = scoreA
   m.scoreB = scoreB
   runFullRecalc()
@@ -377,6 +553,7 @@ export function editMatchScore(matchId: string, scoreA: number, scoreB: number):
 }
 
 export function deleteMatch(matchId: string) {
+  if (!writesAllowed()) return
   data.matches = data.matches.filter((m) => m.id !== matchId) as typeof data.matches
   runFullRecalc()
 }
@@ -409,6 +586,7 @@ export const latestBaselineAt = computed(() =>
 
 /** 清除單一場次的比賽紀錄。已結束場次連場次一併刪除；進行中場次僅刪 matches，保留場次與出席名單。 */
 export function clearSession(sessionId: string, resetRatings: boolean) {
+  if (!writesAllowed()) return
   const session = data.sessions.find((s) => s.id === sessionId)
   if (!session) return
 
@@ -423,6 +601,7 @@ export function clearSession(sessionId: string, resetRatings: boolean) {
 
 /** 清除全部歷史紀錄：所有比賽紀錄與已結束場次刪除；進行中場次保留（統計歸零）。 */
 export function clearAllHistory(resetRatings: boolean) {
+  if (!writesAllowed()) return
   if (!resetRatings) baselineAllPlayers()
 
   data.matches = [] as typeof data.matches
@@ -451,6 +630,7 @@ export function downloadCsvBackup() {
 
 /** 覆蓋還原；格式錯誤時 throw */
 export function importCsvText(text: string) {
+  if (!writesAllowed()) return
   const parsed = importCsv(text)
   data.players = parsed.players as typeof data.players
   data.sessions = parsed.sessions as typeof data.sessions

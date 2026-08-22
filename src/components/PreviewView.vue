@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { cancelPending, playerById, proposeRound, startMatch, swapInPending, ui } from '../store'
+import { cancelPending, playerById, proposeRound, resetPendingScoringFormat, setPendingScoringFormat, startMatch, swapInPending, ui } from '../store'
+import { displayScoringFormat, type ScoringFormatSnapshot } from '../lib/scoring-format'
+import ScoringFormatPicker from './ScoringFormatPicker.vue'
 import { textColorOn } from '../lib/color'
 
 const selected = ref<string | null>(null)
@@ -18,6 +20,7 @@ function tap(id: string) {
 
 const pending = computed(() => ui.pending)
 const player = (id: string) => playerById.value.get(id)
+function saveOverride(snapshot: ScoringFormatSnapshot): void { setPendingScoringFormat(snapshot) }
 </script>
 
 <template>
@@ -80,6 +83,8 @@ const player = (id: string) => playerById.value.get(id)
           </button>
         </div>
       </template>
+
+      <section class="mb-4 rounded-xl bg-white p-3"><h3 class="font-semibold">本場計分賽制</h3><p class="text-sm">{{ displayScoringFormat(pending.scoringFormat) }}</p><ScoringFormatPicker :model-value="pending.scoringFormat" title="本場覆寫賽制" @save="saveOverride" @cancel="undefined" /><button type="button" class="mt-2 min-h-11 rounded border px-3" @click="resetPendingScoringFormat">使用場次預設</button></section>
 
       <div class="flex gap-2">
         <button

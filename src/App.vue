@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ui } from "./store";
+import { recoveryState, ui } from "./store";
+import RecoveryView from "./components/RecoveryView.vue";
 import SessionView from "./components/SessionView.vue";
 import PlayersView from "./components/PlayersView.vue";
 import HistoryView from "./components/HistoryView.vue";
@@ -15,7 +16,8 @@ const tabs = [
 </script>
 
 <template>
-  <div class="min-h-svh bg-slate-100">
+  <div v-if="recoveryState === 'blocked'" class="min-h-svh bg-slate-100"><RecoveryView /></div>
+  <div v-else class="min-h-svh bg-slate-100">
     <header
       class="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur"
     >

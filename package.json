@@ -2,6 +2,7 @@
   "name": "badminton-matcher",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@11.22.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +18,9 @@
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/browser-playwright": "4.1.10",
     "@vue/tsconfig": "^0.9.1",
+    "playwright": "1.62.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10",

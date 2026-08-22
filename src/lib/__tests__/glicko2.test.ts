@@ -8,6 +8,7 @@ import {
   type GlickoState,
 } from '../glicko2'
 import type { Match } from '../../types'
+import { createUnknownSnapshot } from '../scoring-format'
 
 describe('updateRating（Glickman 論文範例）', () => {
   it('rating 1500 / RD 200 對三個對手後 ≈ 1464.06 / 151.52', () => {
@@ -107,6 +108,7 @@ describe('recalcAll（全量重算）', () => {
     scoreA,
     scoreB,
     resters: [],
+    scoringFormat: createUnknownSnapshot('explicit-unknown'),
   })
 
   it('重算結果與逐場即時更新一致', () => {

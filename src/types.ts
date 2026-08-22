@@ -1,3 +1,6 @@
+import type { ScoringFormatSnapshot } from './lib/scoring-format'
+
+export type { ScoringFormatSnapshot } from './lib/scoring-format'
 export type Mode = 'doubles' | 'singles'
 
 /** 全域參賽者：rating 跨場次累積 */
@@ -47,6 +50,8 @@ export interface Match {
   scoreB: number
   /** 該回合休息者（含自願休息），用於休息次數統計 */
   resters: string[]
+  /** Immutable provenance selected before the outcome. */
+  scoringFormat: ScoringFormatSnapshot
 }
 
 /** 單一場次（一天的活動） */
@@ -61,6 +66,8 @@ export interface Session {
   /** 本回合自願休息者 */
   volunteerRest: string[]
   active: boolean
+  /** Explicit prospective default for future matches. */
+  defaultScoringFormat: ScoringFormatSnapshot
 }
 
 export interface AppData {
@@ -78,3 +85,13 @@ export interface RoundProposal {
   teamB: string[]
   resters: string[]
 }
+
+export interface MatchContext extends RoundProposal {
+  readonly scoringFormat: ScoringFormatSnapshot
+}
+
+/** Pending match context can be replaced only before start. */
+export interface PendingMatchContext extends MatchContext {}
+
+/** Live match context has a frozen outcome-blind format snapshot. */
+export interface LiveMatchContext extends MatchContext {}
