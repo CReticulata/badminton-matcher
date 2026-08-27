@@ -55,11 +55,20 @@ export function normalizeAppData(raw: unknown): AppData {
       (match as unknown as Record<string, unknown>).scoringFormat,
       `比賽 ${match.id ?? index}`,
     )
-    // 已宣告結構化賽制卻存著該賽制下不可能出現的比分＝資料損毀，不降級為未知
-    if (isStructured(scoringFormat) && !isLegalEndpoint(scoringFormat, match.scoreA, match.scoreB)) {
+    // 不合賽制的比分只有兩種可能：使用者明確強制記錄（不計入強度），或資料損毀。
+    // 靠 excludedFromRating 這個明確旗標區分——沒有旗標就是損毀，整批拒絕。
+    const excluded = (match as unknown as Record<string, unknown>).excludedFromRating === true
+    if (
+      !excluded
+      && isStructured(scoringFormat)
+      && !isLegalEndpoint(scoringFormat, match.scoreA, match.scoreB)
+    ) {
       throw new Error(`比賽 ${match.id ?? index} 的比分 ${match.scoreA}:${match.scoreB} 不符合其記錄的賽制`)
     }
-    return { ...match, scoringFormat }
+    const normalized: Match = { ...match, scoringFormat }
+    if (excluded) normalized.excludedFromRating = true
+    else delete normalized.excludedFromRating
+    return normalized
   })
 
   return {

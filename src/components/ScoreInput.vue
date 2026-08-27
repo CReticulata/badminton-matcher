@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { playerById, submitScore, ui } from '../store'
-import { displayScoringFormat } from '../lib/scoring-format'
+import { displayScoringFormat, isLegalEndpoint, isStructured } from '../lib/scoring-format'
 
 const scoreA = ref<string | number>('')
 const scoreB = ref<string | number>('')
@@ -17,14 +17,27 @@ const live = computed(() => ui.live)
 const names = (ids: string[]) =>
   ids.map((id) => playerById.value.get(id)?.name ?? '?').join('、')
 
-function onSubmit() {
+/**
+ * 目前輸入是否只差在「不符合賽制」——基本規則都過了，只有賽制這關沒過。
+ * 強制記錄按鈕只在這種情況出現；平手或負數不提供強制。
+ */
+const canForceUnrated = computed(() => {
+  const format = live.value?.scoringFormat
+  if (!format) return false
+  const a = toInt(scoreA.value)
+  const b = toInt(scoreB.value)
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a === b) return false
+  return isStructured(format) && !isLegalEndpoint(format, a, b)
+})
+
+function record(options?: { forceUnrated: boolean }) {
   const a = toInt(scoreA.value)
   const b = toInt(scoreB.value)
   if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
     error.value = '比分必須是非負整數'
     return
   }
-  const err = submitScore(a, b)
+  const err = submitScore(a, b, options)
   if (err) {
     error.value = err
     return
@@ -33,6 +46,9 @@ function onSubmit() {
   scoreB.value = ''
   error.value = ''
 }
+
+const onSubmit = () => record()
+const onForce = () => record({ forceUnrated: true })
 </script>
 
 <template>
@@ -73,7 +89,25 @@ function onSubmit() {
           />
         </div>
       </div>
-      <p v-if="error" class="mb-3 text-center text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" role="alert" class="mb-3 text-center text-sm text-red-600">{{ error }}</p>
+
+      <!-- 只在提醒不合賽制之後出現：讓使用者先看到問題，再決定要不要照樣記錄 -->
+      <div
+        v-if="error && canForceUnrated"
+        class="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3"
+      >
+        <p class="mb-2 text-sm text-amber-900">
+          仍要記錄這個比分嗎？這場會保留在歷史與上場次數中，但
+          <strong>不會計入任何人的強度分數</strong>。
+        </p>
+        <button
+          class="min-h-11 w-full rounded-xl border border-amber-500 bg-white py-3 text-sm font-medium text-amber-900"
+          @click="onForce"
+        >
+          強制結束這場（不計入強度）
+        </button>
+      </div>
+
       <div class="flex gap-2">
         <button
           class="flex-1 rounded-xl border border-slate-300 py-3 text-sm text-slate-600"

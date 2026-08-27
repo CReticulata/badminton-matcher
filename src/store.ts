@@ -11,6 +11,7 @@ import {
   DEFAULT_VOL,
   OVERRIDE_RD,
   applyMatch,
+  countsForRating,
   recalcAll,
   replayRatings,
   type GlickoState,
@@ -438,19 +439,30 @@ export function cancelPending() {
   ui.pending = null
 }
 
+/** 強制記錄選項：略過賽制檢查並將該場排除於強度計算之外 */
+export interface RecordOptions {
+  /** 比分不符賽制時仍要記錄；該場不計入強度，但仍計入上場／休息次數 */
+  forceUnrated?: boolean
+}
+
 /**
  * 終局比分驗證。結構化賽制套用凍結的規則；unknown 維持既有寬鬆規則（不等的非負整數）。
  * 回傳錯誤訊息或 null；必須在寫入紀錄與任何 rating 變更之前呼叫。
+ *
+ * forceUnrated 只放行「賽制」這一關。非負整數與不可平手是所有紀錄的共同前提：
+ * 平手沒有勝負方，對戰畫面與歷史都無法呈現，強制記錄也不例外。
  */
 function validateEndpoint(
   snapshot: ScoringFormatSnapshot,
   scoreA: number,
   scoreB: number,
+  options: RecordOptions = {},
 ): string | null {
   if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
     return '比分必須是非負整數'
   }
   if (scoreA === scoreB) return '比分不可平手'
+  if (options.forceUnrated) return null
   if (isStructured(snapshot) && !isLegalEndpoint(snapshot, scoreA, scoreB)) {
     const { target, winBy, cap } = snapshot.rules
     return `比分不符合本場賽制（${target} 分制、領先 ${winBy} 分、上限 ${cap} 分）`
@@ -458,14 +470,24 @@ function validateEndpoint(
   return null
 }
 
+/** 比分是否需要以「不計入強度」的方式記錄 */
+function needsExclusion(snapshot: ScoringFormatSnapshot, scoreA: number, scoreB: number): boolean {
+  return isStructured(snapshot) && !isLegalEndpoint(snapshot, scoreA, scoreB)
+}
+
 /** 賽後輸入比分：寫入紀錄、依實際分組更新 rating 與統計 */
-export function submitScore(scoreA: number, scoreB: number): string | null {
+export function submitScore(
+  scoreA: number,
+  scoreB: number,
+  options: RecordOptions = {},
+): string | null {
   if (isBlocked()) return BLOCKED_MESSAGE
   const live = ui.live
   const sess = currentSession.value
   if (!live || !sess) return '沒有進行中的比賽'
-  const formatError = validateEndpoint(live.scoringFormat, scoreA, scoreB)
+  const formatError = validateEndpoint(live.scoringFormat, scoreA, scoreB, options)
   if (formatError) return formatError
+  const excluded = needsExclusion(live.scoringFormat, scoreA, scoreB)
 
   const match: Match = {
     id: genId(),
@@ -479,18 +501,21 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
     resters: [...live.resters],
     scoringFormat: cloneScoringFormat(live.scoringFormat),
   }
+  if (excluded) match.excludedFromRating = true
   data.matches.push(match)
 
-  // 即時 Glicko-2 更新（一場＝一個 rating period）
-  const states = new Map<string, GlickoState>()
-  for (const p of data.players) states.set(p.id, { rating: p.rating, rd: p.rd, vol: p.vol })
-  const updated = applyMatch(states, match)
-  for (const [id, s] of updated) {
-    const p = playerById.value.get(id)
-    if (p) {
-      p.rating = s.rating
-      p.rd = s.rd
-      p.vol = s.vol
+  // 即時 Glicko-2 更新（一場＝一個 rating period）；不計入強度者跳過
+  if (countsForRating(match)) {
+    const states = new Map<string, GlickoState>()
+    for (const p of data.players) states.set(p.id, { rating: p.rating, rd: p.rd, vol: p.vol })
+    const updated = applyMatch(states, match)
+    for (const [id, s] of updated) {
+      const p = playerById.value.get(id)
+      if (p) {
+        p.rating = s.rating
+        p.rd = s.rd
+        p.vol = s.vol
+      }
     }
   }
 
@@ -553,13 +578,28 @@ function runFullRecalc() {
   applyRatingStates(states)
 }
 
-export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {
+export function editMatchScore(
+  matchId: string,
+  scoreA: number,
+  scoreB: number,
+  options: RecordOptions = {},
+): string | null {
   if (isBlocked()) return BLOCKED_MESSAGE
   const m = data.matches.find((x) => x.id === matchId)
   if (!m) return '找不到這場比賽'
   // 驗證位於重播決策的上游：只會擋下修改，不影響哪些事件重播或邊界在哪
-  const formatError = validateEndpoint(m.scoringFormat, scoreA, scoreB)
+  // 已經不計入強度者無需再次確認：那場本來就不影響任何人的分數，
+  // 再問一次沒有安全性收益。要守的是「不能不小心把計分的比賽變成不計分」，
+  // 所以只有從計入轉為排除時才要求明確強制。
+  const alreadyExcluded = m.excludedFromRating === true
+  const formatError = validateEndpoint(m.scoringFormat, scoreA, scoreB, {
+    forceUnrated: options.forceUnrated || alreadyExcluded,
+  })
   if (formatError) return formatError
+  // 不變式：一場比賽被排除於強度計算，當且僅當其比分不符合凍結的賽制。
+  // 因此把不合法的比分改正後會自動恢復計入，改成另一個不合法比分則維持排除。
+  if (needsExclusion(m.scoringFormat, scoreA, scoreB)) m.excludedFromRating = true
+  else delete m.excludedFromRating
   m.scoreA = scoreA
   m.scoreB = scoreB
   runFullRecalc()

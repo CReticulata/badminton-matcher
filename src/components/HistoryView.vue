@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { displayScoringFormat } from '../lib/scoring-format'
+import { displayScoringFormat, isLegalEndpoint, isStructured } from '../lib/scoring-format'
 import {
   clearAllHistory,
   clearSession,
@@ -118,14 +118,22 @@ const toInt = (v: string | number): number => {
   return s === '' ? NaN : Number(s)
 }
 
-function saveEdit(m: Match) {
+/** 與比分輸入相同的判定：只差在賽制這關時才提供強制記錄 */
+function canForceUnrated(m: Match): boolean {
+  const a = toInt(editA.value)
+  const b = toInt(editB.value)
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a === b) return false
+  return isStructured(m.scoringFormat) && !isLegalEndpoint(m.scoringFormat, a, b)
+}
+
+function saveEdit(m: Match, options?: { forceUnrated: boolean }) {
   const a = toInt(editA.value)
   const b = toInt(editB.value)
   if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
     error.value = '比分必須是非負整數'
     return
   }
-  const err = editMatchScore(m.id, a, b)
+  const err = editMatchScore(m.id, a, b, options)
   if (err) {
     error.value = err
     return
@@ -204,6 +212,13 @@ function onDelete(m: Match) {
           <div class="mb-1 flex items-center text-xs text-slate-400">
             <span>{{ time(m.at) }}</span>
             <span class="ml-2">{{ m.mode === 'doubles' ? '雙打' : '單打' }}</span>
+            <span
+              v-if="m.excludedFromRating"
+              class="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800"
+              title="比分不符合本場賽制，已強制記錄；計入上場次數但不計入強度分數"
+            >
+              不計入強度
+            </span>
             <!-- 已完成比賽的賽制來源，唯讀 -->
             <span
               class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500"
@@ -267,17 +282,32 @@ function onDelete(m: Match) {
               </div>
             </div>
           </div>
-          <div v-if="editing === m.id" class="mt-2 flex items-center justify-end gap-2">
-            <span v-if="beforeBaseline(m)" class="mr-auto text-xs text-amber-600">
-              早於強度基準點，僅更新紀錄、不影響強度分數
-            </span>
-            <span v-if="error" class="text-xs text-red-600">{{ error }}</span>
-            <button class="rounded border border-slate-300 px-3 py-1 text-xs" @click="editing = null">
-              取消
-            </button>
-            <button class="rounded bg-teal-700 px-3 py-1 text-xs text-white" @click="saveEdit(m)">
-              儲存並重算
-            </button>
+          <div v-if="editing === m.id" class="mt-2">
+            <div class="flex items-center justify-end gap-2">
+              <span v-if="beforeBaseline(m)" class="mr-auto text-xs text-amber-600">
+                早於強度基準點，僅更新紀錄、不影響強度分數
+              </span>
+              <span v-if="error" role="alert" class="text-xs text-red-600">{{ error }}</span>
+              <button class="rounded border border-slate-300 px-3 py-1 text-xs" @click="editing = null">
+                取消
+              </button>
+              <button class="rounded bg-teal-700 px-3 py-1 text-xs text-white" @click="saveEdit(m)">
+                儲存並重算
+              </button>
+            </div>
+            <!-- 只在提醒不合賽制之後出現 -->
+            <div
+              v-if="error && canForceUnrated(m)"
+              class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"
+            >
+              仍要記錄這個比分嗎？這場會保留在歷史與上場次數中，但不會計入強度分數。
+              <button
+                class="mt-2 w-full rounded-lg border border-amber-500 bg-white py-2 font-medium"
+                @click="saveEdit(m, { forceUnrated: true })"
+              >
+                強制儲存（不計入強度）
+              </button>
+            </div>
           </div>
           <p v-if="m.resters.length" class="mt-1.5 text-xs text-slate-400">
             休息：{{ m.resters.map((id) => player(id)?.name ?? '?').join('、') }}

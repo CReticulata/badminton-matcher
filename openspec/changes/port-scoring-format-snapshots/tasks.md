@@ -42,6 +42,15 @@
 - [x] 6.4 GREEN: freeze the snapshot in `startMatch()`; validate in `submitScore()` upstream of `applyMatch` and persistence; validate in `editMatchScore()` upstream of the replay decision.
 - [x] 6.5 Add tests that archiving and restoring a player changes no snapshot and that archived players' matches export unchanged.
 
+## 8. Unrated force-record
+
+- [x] 8.1 Add `Match.excludedFromRating` and a single `countsForRating()` predicate in `src/lib/glicko2.ts`; make `replayRatings` skip excluded matches so no call site can miss it.
+- [x] 8.2 Skip excluded matches in the live update (`submitScore`) and in `sessionRatingReport` per-match deltas.
+- [x] 8.3 Relax the endpoint-contradiction rejection in `normalizeAppData` for matches carrying the explicit flag; without the flag it stays corruption.
+- [x] 8.4 Add the `excludedFromRating` CSV column and round-trip tests.
+- [x] 8.5 Offer the force control only after the illegal-endpoint message, in `ScoreInput.vue` and the `HistoryView.vue` edit flow.
+- [x] 8.6 Add tests for rating non-contribution under live update, `recalcAll`, and session summary; fairness statistics still counting; force not bypassing tie/negative; reload/CSV round-trip; and the edit invariant in both directions.
+
 ## 7. Verify
 
 - [x] 7.1 Run `pnpm test` and record the real file/test counts.
@@ -53,7 +62,7 @@
 
 ## 執行紀錄
 
-- `pnpm test`：17 files / 179 tests passed。
+- `pnpm test`：18 files / 193 tests passed。
 - `pnpm build`：`vue-tsc -b` 與 Vite production build 皆 exit 0。
 - `git diff --check`：exit 0。
 - `openspec validate port-scoring-format-snapshots --strict --no-interactive`：valid。

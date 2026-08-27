@@ -105,7 +105,7 @@ For catalog and custom snapshots, score submission MUST reject endpoints that ar
 
 #### Scenario: Known structured endpoint is illegal
 - **WHEN** a submitted score is not a legal terminal endpoint under the match snapshot
-- **THEN** submission fails before match persistence and before rating mutation
+- **THEN** submission fails before match persistence and before rating mutation, and the product offers to record the match as unrated instead
 
 #### Scenario: Unknown-format endpoint is submitted
 - **WHEN** the match snapshot is unknown and the scores are unequal nonnegative integers
@@ -114,6 +114,42 @@ For catalog and custom snapshots, score submission MUST reject endpoints that ar
 #### Scenario: Two formats share a winner
 - **WHEN** two otherwise equivalent accepted matches have different valid snapshots but the same participants and winner
 - **THEN** the resulting Glicko rating, RD, and volatility are identical
+
+### Requirement: An illegal endpoint may be recorded only as an unrated match
+
+After an illegal endpoint has been reported, the product MAY offer to record the match anyway. Such a match MUST be marked unrated by an explicit stored flag, MUST NOT contribute to any rating calculation in live update, replay, recalculation, or session summary, and MUST still count toward participation, rotation, and rest statistics. The offer MUST NOT bypass the shared requirement of unequal nonnegative integer scores. A match MUST NOT become unrated without a deliberate action for that match.
+
+#### Scenario: Illegal endpoint is force-recorded
+- **WHEN** the user confirms recording a score that is illegal under the match snapshot
+- **THEN** the match is stored with its frozen snapshot and an explicit unrated flag, and every player's rating, RD, and volatility are unchanged
+
+#### Scenario: Unrated match is replayed
+- **WHEN** ratings are recalculated or a session is replayed from its opening snapshot
+- **THEN** the unrated match is skipped, and the resulting states equal those obtained from the rated matches alone
+
+#### Scenario: Unrated match and fairness
+- **WHEN** participation, rotation, consecutive-play, or rest statistics are computed
+- **THEN** the unrated match counts exactly like any other completed match
+
+#### Scenario: Force does not bypass shared score rules
+- **WHEN** the user attempts to force-record a tie or a negative score
+- **THEN** it is rejected and no match is stored
+
+#### Scenario: Unrated match is reloaded
+- **WHEN** stored or imported data contains a match whose score is illegal under its structured snapshot
+- **THEN** it loads successfully if and only if it carries the explicit unrated flag; without the flag it is corruption and the enclosing load or import is rejected
+
+#### Scenario: Unrated score is corrected
+- **WHEN** an unrated match's score is edited to one that is legal under its unchanged snapshot
+- **THEN** the unrated flag is cleared and the match resumes contributing to ratings
+
+#### Scenario: Unrated score is edited to another illegal score
+- **WHEN** an unrated match's score is edited to another score that is illegal under its unchanged snapshot
+- **THEN** the edit is accepted without a further confirmation and the match remains unrated
+
+#### Scenario: Rated match is edited to an illegal score
+- **WHEN** a rated match's score is edited to one that is illegal under its unchanged snapshot
+- **THEN** the edit is rejected until the user deliberately confirms recording it as unrated
 
 ### Requirement: Score edits preserve the frozen snapshot and the replay boundary
 

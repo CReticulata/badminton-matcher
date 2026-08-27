@@ -1,5 +1,5 @@
 import type { Match, RatingBaseline, RatingOverride, RatingSnapshot, Session } from '../types'
-import { applyMatch, DEFAULT_VOL, OVERRIDE_RD, type GlickoState } from './glicko2'
+import { applyMatch, countsForRating, DEFAULT_VOL, OVERRIDE_RD, type GlickoState } from './glicko2'
 
 export interface SessionSummaryRow {
   playerId: string
@@ -80,6 +80,9 @@ export function sessionRatingReport(
     const match = event.match
     const playerIds = [...match.teamA, ...match.teamB]
     if (playerIds.some((id) => !states.has(id))) return null
+
+    // 不計入強度者不改變狀態，也不留下 delta——UI 藉此顯示「不計入強度」而非 0
+    if (!countsForRating(match)) continue
 
     const updated = applyMatch(states, match)
     const changes: Record<string, number> = {}

@@ -76,7 +76,7 @@ const SESSION_HEADER = [
 ]
 const MATCH_HEADER = [
   'id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters',
-  'scoringFormat',
+  'scoringFormat', 'excludedFromRating',
 ]
 
 const KNOWN_SECTIONS = ['players', 'overrides', 'baselines', 'sessions', 'matches'] as const
@@ -117,6 +117,7 @@ export function exportCsv(data: AppData): string {
       [
         m.id, m.sessionId, m.at, m.mode, joinIds(m.teamA), joinIds(m.teamB),
         m.scoreA, m.scoreB, joinIds(m.resters), encodeScoringFormat(m.scoringFormat),
+        m.excludedFromRating === true ? 'true' : '',
       ]
         .map(esc)
         .join(','),
@@ -282,6 +283,7 @@ export function importCsv(text: string): AppData {
         resters: splitIds(row.resters ?? ''),
         scoringFormat: decodeFormatCell(row.scoringFormat, `比賽 ${row.id ?? ''}`),
       }
+      if (row.excludedFromRating === 'true') m.excludedFromRating = true
       data.matches.push(m)
     }
     // 未知區段：略過（向前相容）

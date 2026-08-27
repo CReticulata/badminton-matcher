@@ -125,6 +125,14 @@ export function updateRating(
 const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length
 
 /**
+ * 這場比賽是否計入強度。強制記錄的不合賽制比賽不計入。
+ * 所有會把比賽套用到 rating 的路徑都必須經過這個判定，不可各自實作。
+ */
+export function countsForRating(match: Pick<Match, 'excludedFromRating'>): boolean {
+  return match.excludedFromRating !== true
+}
+
+/**
  * 依一場比賽計算所有上場者的新 rating（純函式）。
  * 傳回 Map<playerId, GlickoState>，未上場者不在其中。
  * 所有更新皆以賽前狀態為基準（同一 period 內互不影響）。
@@ -218,7 +226,7 @@ export function replayRatings(
           vol: ev.baseline.vol,
         })
       }
-    } else {
+    } else if (countsForRating(ev.match)) {
       const changed = applyMatch(states, ev.match)
       for (const [id, s] of changed) states.set(id, s)
     }

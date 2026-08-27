@@ -60,6 +60,13 @@ export interface Match {
   resters: string[]
   /** 開打前凍結的賽制來源；舊資料為 legacy-missing，不得由比分反推 */
   scoringFormat: ScoringFormatSnapshot
+  /**
+   * 比分不符合凍結賽制、但使用者選擇強制記錄。
+   * 此場完全不參與任何 rating 計算（即時更新與重播皆略過），
+   * 但仍計入上場／休息次數——球是真的打了，公平輪替必須看得到。
+   * 缺此欄位＝正常計入（舊資料相容）。
+   */
+  excludedFromRating?: boolean
 }
 
 /** 單一場次（一天的活動） */
