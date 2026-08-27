@@ -164,6 +164,17 @@ export function reconstructScoringFormat(value: unknown): ScoringFormatSnapshot 
   throw new Error('不支援的賽制快照類型')
 }
 
+/**
+ * 新活動的預設賽制。這是前瞻性的產品預設——使用者在開打前看得到也改得掉，
+ * 記錄下來的是明確的目錄選擇。不可用於補齊缺賽制的舊資料：那屬於對歷史的
+ * 追溯猜測，一律維持 legacy-missing。
+ */
+export const DEFAULT_SESSION_FORMAT_ID: CatalogFormatId = 'badminton-15-w2-c21'
+
+export function createDefaultSessionSnapshot(): CatalogScoringFormat {
+  return createCatalogSnapshot(DEFAULT_SESSION_FORMAT_ID)
+}
+
 export function isStructured(snapshot: ScoringFormatSnapshot): snapshot is StructuredScoringFormat {
   return snapshot.kind === 'catalog' || snapshot.kind === 'custom'
 }

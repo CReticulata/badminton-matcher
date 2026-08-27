@@ -29,7 +29,7 @@
 ## 5. Selection and display UI
 
 - [x] 5.1 GREEN: add `src/components/ScoringFormatPicker.vue` editing a draft; Save validates all fields together and constructs a detached snapshot, Cancel discards it, no partial custom value reaches store state.
-- [x] 5.2 GREEN: `src/components/SessionView.vue` — require a choice at session creation, expose a prospective default selector, and show the one-time blocking choice for a `legacy-missing` active session before its next match.
+- [x] 5.2 GREEN: `src/components/SessionView.vue` — pre-fill the fixed product default at session creation with a collapsed change control, expose a prospective default selector, and show the one-time blocking choice for a `legacy-missing` active session before its next match.
 - [x] 5.3 GREEN: `src/components/PreviewView.vue` — show the inherited format, allow a pre-start override and "use session default".
 - [x] 5.4 GREEN: read-only display in `src/components/MatchDisplay.vue`, `src/components/ScoreInput.vue`, and `src/components/HistoryView.vue`.
 - [ ] 5.5 Verify blocking states: focus moves to the blocking heading, background actions disabled, Escape cannot dismiss, labels and `aria-describedby`/`aria-live` present, 44×44 CSS pixel touch targets, single column with no horizontal scroll at 320 CSS pixels.
@@ -53,7 +53,7 @@
 
 ## 執行紀錄
 
-- `pnpm test`：17 files / 175 tests passed。
+- `pnpm test`：17 files / 179 tests passed。
 - `pnpm build`：`vue-tsc -b` 與 Vite production build 皆 exit 0。
 - `git diff --check`：exit 0。
 - `openspec validate port-scoring-format-snapshots --strict --no-interactive`：valid。

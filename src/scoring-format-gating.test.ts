@@ -19,9 +19,11 @@ import {
 import {
   createCatalogSnapshot,
   createCustomSnapshot,
+  createDefaultSessionSnapshot,
   createUnknownSnapshot,
   type ScoringFormatSnapshot,
 } from './lib/scoring-format'
+import { normalizeAppData } from './lib/app-data-normalization'
 
 const FMT15 = createCatalogSnapshot('badminton-15-w2-c21')
 const FMT21 = createCatalogSnapshot('badminton-21-w2-c30')
@@ -183,5 +185,44 @@ describe('封存不影響賽制來源', () => {
     expect(data.matches[0]!.scoringFormat).toEqual(FMT15)
     expect(restorePlayer(a.id)).toBe(true)
     expect(exportCsvText()).toBe(csvBefore)
+  })
+})
+
+describe('新活動的產品預設', () => {
+  it('預設是 15/2/21 的目錄快照', () => {
+    expect(createDefaultSessionSnapshot()).toEqual(FMT15)
+    expect(createDefaultSessionSnapshot().kind).toBe('catalog')
+  })
+
+  it('startSession 原樣記錄傳入的賽制，不自行替換', () => {
+    const a = addPlayer('A', 1500)
+    startSession([a.id], createDefaultSessionSnapshot())
+    expect(data.sessions[0]!.defaultScoringFormat).toEqual(FMT15)
+
+    resetStore()
+    const b = addPlayer('B', 1500)
+    startSession([b.id], FMT21)
+    expect(data.sessions[0]!.defaultScoringFormat).toEqual(FMT21)
+  })
+
+  it('活動存的是自己的副本，之後改預設不會回頭改到別的活動', () => {
+    const a = addPlayer('A', 1500)
+    startSession([a.id], FMT15)
+    endSession()
+    startSession([a.id], FMT15)
+    setSessionDefaultScoringFormat(FMT21)
+    expect(data.sessions[0]!.defaultScoringFormat).toEqual(FMT15)
+    expect(data.sessions[1]!.defaultScoringFormat).toEqual(FMT21)
+  })
+
+  it('產品預設不得套用到缺賽制的舊資料', () => {
+    const legacy = normalizeAppData({
+      players: [], overrides: [], baselines: [],
+      sessions: [{ id: 's1', name: '舊活動', startedAt: 1, presentIds: [], leftIds: [], volunteerRest: [], active: false }],
+      matches: [{ id: 'm1', sessionId: 's1', at: 2, mode: 'doubles', teamA: ['a'], teamB: ['b'], scoreA: 15, scoreB: 12, resters: [] }],
+    })
+    // 15:12 在 15/2/21 下完全合法，仍不得因此套用產品預設
+    expect(legacy.sessions[0]!.defaultScoringFormat).toEqual(createUnknownSnapshot('legacy-missing'))
+    expect(legacy.matches[0]!.scoringFormat).toEqual(createUnknownSnapshot('legacy-missing'))
   })
 })

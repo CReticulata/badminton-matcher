@@ -49,11 +49,19 @@ Structured rules MUST be finite positive safe integers with `winBy <= target <= 
 
 ### Requirement: Session defaults are explicit and prospective
 
-Every session MUST carry an explicit default snapshot, including a deliberate `unknown`. Creating or activating a session MUST NOT infer or preselect a format from scores, dates, names, locale, application version, or another session. Changing a default MUST affect only matches that have not yet started.
+Every session MUST carry a default snapshot recorded as a deliberate catalog, custom, or unknown value. A new session MAY be pre-filled with one fixed product default; that default MUST be a constant, MUST be visible before the first match starts, and MUST be replaceable without starting a match. A default MUST NOT be derived from scores, dates, names, locale, application version, or another session. Changing a default MUST affect only matches that have not yet started.
 
-#### Scenario: New session chooses a default
-- **WHEN** a user creates a session
-- **THEN** an explicit catalog, custom, or unknown choice is required before a match can start
+#### Scenario: New session uses the product default
+- **WHEN** a user creates a session without changing the format
+- **THEN** the session records the fixed product default as a catalog snapshot, and that value is shown before any match can start
+
+#### Scenario: User replaces the default before starting
+- **WHEN** a user changes the format while creating a session
+- **THEN** the session records that choice instead of the product default
+
+#### Scenario: Product default is never applied to existing data
+- **WHEN** local or CSV data contains a session or match without format metadata
+- **THEN** it loads as `legacy-missing` and the product default is not written into it
 
 #### Scenario: Session default changes
 - **WHEN** a user changes the default after matches have started or completed

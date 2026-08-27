@@ -15,7 +15,7 @@ import {
   ui,
 } from '../store'
 import {
-  createUnknownSnapshot,
+  createDefaultSessionSnapshot,
   displayScoringFormat,
   type ScoringFormatSnapshot,
 } from '../lib/scoring-format'
@@ -25,10 +25,10 @@ import ScoringFormatPicker from './ScoringFormatPicker.vue'
 const checked = ref<Set<string>>(new Set())
 const message = ref('')
 
-/** 開場前必須明確選擇賽制；null 代表尚未選擇，不預選任何目錄項目 */
-const newFormat = ref<ScoringFormatSnapshot | null>(null)
+/** 新活動預設 15 分制；開打前看得到也改得掉，不影響舊資料的 legacy-missing */
+const newFormat = ref<ScoringFormatSnapshot>(createDefaultSessionSnapshot())
+const editingNewFormat = ref(false)
 const editingDefault = ref(false)
-const draftBase = computed(() => newFormat.value ?? createUnknownSnapshot('explicit-unknown'))
 
 function toggleCheck(id: string) {
   const s = new Set(checked.value)
@@ -38,10 +38,11 @@ function toggleCheck(id: string) {
 }
 
 function onStart() {
-  if (checked.value.size === 0 || !newFormat.value) return
+  if (checked.value.size === 0) return
   startSession([...checked.value], newFormat.value)
   checked.value = new Set()
-  newFormat.value = null
+  newFormat.value = createDefaultSessionSnapshot()
+  editingNewFormat.value = false
   message.value = ''
 }
 
@@ -105,30 +106,32 @@ function onEnd() {
           </label>
         </li>
       </ul>
-      <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-        <p class="mb-2 text-sm text-slate-600">
-          選擇今天的計分賽制。之後可以更改，但只會影響尚未開打的比賽。
-        </p>
-        <p v-if="newFormat" class="mb-2 text-sm font-medium text-teal-800">
-          已選擇：{{ displayScoringFormat(newFormat) }}
-        </p>
+      <div class="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <span class="text-xs text-slate-500">賽制</span>
+        <span class="text-sm">{{ displayScoringFormat(newFormat) }}</span>
+        <button
+          class="ml-auto rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-500"
+          @click="editingNewFormat = !editingNewFormat"
+        >
+          {{ editingNewFormat ? '收起' : '更改' }}
+        </button>
+      </div>
+      <div v-if="editingNewFormat" class="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <p class="mb-2 text-sm text-slate-600">開場後仍可更改，但只會影響尚未開打的比賽。</p>
         <ScoringFormatPicker
-          :model-value="draftBase"
+          :model-value="newFormat"
           id-prefix="new-session-format"
-          @save="newFormat = $event"
-          @cancel="newFormat = null"
+          @save="newFormat = $event; editingNewFormat = false"
+          @cancel="editingNewFormat = false"
         />
       </div>
       <button
         class="min-h-11 w-full rounded-xl bg-teal-700 py-3 font-medium text-white disabled:opacity-40"
-        :disabled="checked.size === 0 || !newFormat"
+        :disabled="checked.size === 0"
         @click="onStart"
       >
         開始場次（{{ checked.size }} 人）
       </button>
-      <p v-if="checked.size > 0 && !newFormat" class="mt-2 text-center text-sm text-slate-500">
-        請先選擇計分賽制
-      </p>
     </template>
 
     <!-- 場次進行中 -->
