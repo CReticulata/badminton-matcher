@@ -26,6 +26,10 @@ import {
   ui,
 } from './store'
 import { recalcAll } from './lib/glicko2'
+import { createUnknownSnapshot } from './lib/scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 function resetStore() {
   data.players.splice(0)
@@ -51,7 +55,7 @@ describe('活動 rating 邊界', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1700)
 
-    startSession([p1.id])
+    startSession([p1.id], TEST_FORMAT)
     const session = data.sessions[0]!
 
     expect(session.openingRatings).toEqual({
@@ -81,7 +85,7 @@ describe('活動 rating 邊界', () => {
 
   it('活動進行中禁止手動覆寫 rating', () => {
     const player = addPlayer('小明', 1500)
-    startSession([player.id])
+    startSession([player.id], TEST_FORMAT)
 
     expect(overrideRating(player.id, 1800)).toBe(false)
     expect(player.rating).toBe(1500)
@@ -97,16 +101,16 @@ describe('活動 rating 邊界', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
 
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const firstSession = data.sessions[0]!
-    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 10)).toBeNull()
     const firstMatch = data.matches[0]!
     endSession()
 
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const secondSession = data.sessions[1]!
-    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 10)).toBeNull()
     endSession()
     const currentAfterSecond = [p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]
@@ -130,14 +134,14 @@ describe('活動 rating 邊界', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
 
-    startSession([p1.id, p2.id])
-    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    startSession([p1.id, p2.id], TEST_FORMAT)
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 10)).toBeNull()
     const firstMatch = data.matches[0]!
     endSession()
 
-    startSession([p1.id, p2.id])
-    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [] }
+    startSession([p1.id, p2.id], TEST_FORMAT)
+    ui.live = { mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 10)).toBeNull()
     endSession()
     const currentAfterSecond = [p1.rating, p1.rd, p1.vol, p2.rating, p2.rd, p2.vol]
@@ -150,7 +154,7 @@ describe('活動 rating 邊界', () => {
 describe('球員封存', () => {
   it('活動中禁止封存；活動後保留資料並可還原', () => {
     const player = addPlayer('小明', 1500)
-    startSession([player.id])
+    startSession([player.id], TEST_FORMAT)
 
     expect(archivePlayer(player.id)).toBe(false)
     expect(player.archivedAt).toBeUndefined()
@@ -174,7 +178,7 @@ describe('球員封存', () => {
 describe('proposeRound 連續上場優先級', () => {
   it('上場次數相同時，優先讓連續上場場數最多者休息', () => {
     const players = [...'abcde'].map((name) => addPlayer(name, 1500))
-    startSession(players.map((player) => player.id))
+    startSession(players.map((player) => player.id), TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
 
     // 五場中每人各休息一次，因此當日上場次數相同；
@@ -191,6 +195,7 @@ describe('proposeRound 連續上場優先級', () => {
         scoreA: 21,
         scoreB: 15,
         resters: [players[restIndex]!.id],
+        scoringFormat: TEST_FORMAT,
       })
     }
     data.matches.push({
@@ -202,7 +207,7 @@ describe('proposeRound 連續上場優先級', () => {
       teamB: [players[4]!.id],
       scoreA: 21,
       scoreB: 18,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
 
     vi.spyOn(Math, 'random').mockReturnValue(0.999999)
@@ -215,7 +220,7 @@ describe('clearSession / clearAllHistory', () => {
   it('(a) 清除已結束場次＋保留強度：rating/RD/vol 不變，該場次紀錄已刪除', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
     // 打幾場
     data.matches.push({
@@ -227,7 +232,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 15,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     data.matches.push({
       id: 'm2',
@@ -238,7 +243,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 15,
       scoreB: 21,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     // 依歷史全量重算出清除前狀態（等同即時更新後的狀態）
     const before = recalcAll(data.players, data.matches, data.overrides, data.baselines)
@@ -270,7 +275,7 @@ describe('clearSession / clearAllHistory', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
     const p3 = addPlayer('阿強', 1500)
-    startSession([p1.id, p2.id, p3.id])
+    startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
     data.matches.push({
       id: 'm1',
@@ -281,10 +286,10 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 15,
-      resters: [p3.id],
+      resters: [p3.id], scoringFormat: TEST_FORMAT,
     })
     // 另一場不受影響的比賽（別的場次）
-    startSession([p1.id, p2.id, p3.id])
+    startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const otherSessionId = data.sessions[1]!.id
     data.matches.push({
       id: 'm2',
@@ -295,7 +300,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p3.id],
       scoreA: 21,
       scoreB: 10,
-      resters: [p2.id],
+      resters: [p2.id], scoringFormat: TEST_FORMAT,
     })
 
     clearSession(sessionId, true)
@@ -317,7 +322,7 @@ describe('clearSession / clearAllHistory', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
 
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const endedSessionId = data.sessions[0]!.id
     data.matches.push({
       id: 'm1',
@@ -328,11 +333,11 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 15,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     endSession()
 
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const activeSessionId = data.sessions[1]!.id
     data.matches.push({
       id: 'm2',
@@ -343,7 +348,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 18,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
 
     clearAllHistory(false)
@@ -362,7 +367,7 @@ describe('clearSession / clearAllHistory', () => {
   it('(d) baseline 事件 CSV 匯出/匯入 round-trip 資料一致', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
     data.matches.push({
       id: 'm1',
@@ -373,7 +378,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 15,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     endSession()
     clearSession(sessionId, false) // 寫入 baseline
@@ -392,7 +397,7 @@ describe('clearSession / clearAllHistory', () => {
   it('(e) 清除後又打新比賽，重播序列（override + baseline 混合）多次 recalcAll 結果一致（幂等）', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
     data.matches.push({
       id: 'm1',
@@ -403,7 +408,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 15,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     endSession()
     clearSession(sessionId, false) // 寫入 baseline（保留強度）
@@ -412,7 +417,7 @@ describe('clearSession / clearAllHistory', () => {
     overrideRating(p2.id, 1600)
 
     // 又打新比賽（舊場次已結束並被 clearSession 刪除，故新場次會是唯一一筆）
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const newSessionId = data.sessions[data.sessions.length - 1]!.id
     data.matches.push({
       id: 'm2',
@@ -423,7 +428,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 15,
       scoreB: 21,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
 
     const run1 = recalcAll(data.players, data.matches, data.overrides, data.baselines)
@@ -443,7 +448,7 @@ describe('clearSession / clearAllHistory', () => {
     const p2 = addPlayer('阿華', 1500)
     const p3 = addPlayer('阿強', 1500)
     // 場次 A：p1 血洗 p2 多場，把 p1 打高
-    startSession([p1.id, p2.id])
+    startSession([p1.id, p2.id], TEST_FORMAT)
     const sessionA = data.sessions[0]!.id
     for (let i = 0; i < 6; i++) {
       data.matches.push({
@@ -455,12 +460,12 @@ describe('clearSession / clearAllHistory', () => {
         teamB: [p2.id],
         scoreA: 21,
         scoreB: 5,
-        resters: [],
+        resters: [], scoringFormat: TEST_FORMAT,
       })
     }
     endSession()
     // 場次 B：高分的 p1 對 p3
-    startSession([p1.id, p3.id])
+    startSession([p1.id, p3.id], TEST_FORMAT)
     const sessionB = data.sessions.find((s) => s.active)!.id
     data.matches.push({
       id: 'b1',
@@ -471,7 +476,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p3.id],
       scoreA: 21,
       scoreB: 5,
-      resters: [],
+      resters: [], scoringFormat: TEST_FORMAT,
     })
     endSession()
     const st = recalcAll(data.players, data.matches, data.overrides, data.baselines)
@@ -496,7 +501,7 @@ describe('clearSession / clearAllHistory', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1500)
     const p3 = addPlayer('阿強', 1500)
-    startSession([p1.id, p2.id, p3.id])
+    startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const sessionA = data.sessions[0]!.id
     data.matches.push({
       id: 'a1',
@@ -507,10 +512,10 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p2.id],
       scoreA: 21,
       scoreB: 19,
-      resters: [p3.id],
+      resters: [p3.id], scoringFormat: TEST_FORMAT,
     })
     endSession()
-    startSession([p1.id, p2.id, p3.id])
+    startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const sessionB = data.sessions.find((s) => s.active)!.id
     data.matches.push({
       id: 'b1',
@@ -521,7 +526,7 @@ describe('clearSession / clearAllHistory', () => {
       teamB: [p3.id],
       scoreA: 21,
       scoreB: 19,
-      resters: [p2.id],
+      resters: [p2.id], scoringFormat: TEST_FORMAT,
     })
     endSession()
     const st = recalcAll(data.players, data.matches, data.overrides, data.baselines)

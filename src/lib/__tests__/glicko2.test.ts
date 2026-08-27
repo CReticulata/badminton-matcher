@@ -8,6 +8,10 @@ import {
   type GlickoState,
 } from '../glicko2'
 import type { Match } from '../../types'
+import { createUnknownSnapshot } from '../scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 describe('updateRating（Glickman 論文範例）', () => {
   it('rating 1500 / RD 200 對三個對手後 ≈ 1464.06 / 151.52', () => {
@@ -106,7 +110,7 @@ describe('recalcAll（全量重算）', () => {
     teamB,
     scoreA,
     scoreB,
-    resters: [],
+    resters: [], scoringFormat: TEST_FORMAT,
   })
 
   it('重算結果與逐場即時更新一致', () => {

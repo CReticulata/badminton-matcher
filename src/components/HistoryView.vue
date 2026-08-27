@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { displayScoringFormat } from '../lib/scoring-format'
 import {
   clearAllHistory,
   clearSession,
@@ -203,6 +204,13 @@ function onDelete(m: Match) {
           <div class="mb-1 flex items-center text-xs text-slate-400">
             <span>{{ time(m.at) }}</span>
             <span class="ml-2">{{ m.mode === 'doubles' ? '雙打' : '單打' }}</span>
+            <!-- 已完成比賽的賽制來源，唯讀 -->
+            <span
+              class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500"
+              :title="m.scoringFormat.kind === 'unknown' ? '這場沒有賽制紀錄，不由比分推測' : undefined"
+            >
+              {{ displayScoringFormat(m.scoringFormat) }}
+            </span>
             <span
               v-if="beforeBaseline(m)"
               class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-500"

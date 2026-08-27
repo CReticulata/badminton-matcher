@@ -3,6 +3,10 @@ import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import SessionView from './components/SessionView.vue'
 import * as store from './store'
+import { createUnknownSnapshot } from './lib/scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 function resetStore() {
   store.data.players.splice(0)
@@ -28,7 +32,7 @@ describe('next-round preview removal', () => {
     const players = ['A', 'B', 'C', 'D', 'E'].map((name) =>
       store.addPlayer(name, 1500),
     )
-    store.startSession(players.map((player) => player.id))
+    store.startSession(players.map((player) => player.id), TEST_FORMAT)
 
     const html = await renderToString(createSSRApp(SessionView))
 

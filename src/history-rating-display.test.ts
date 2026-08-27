@@ -3,6 +3,10 @@ import { renderToString } from 'vue/server-renderer'
 import { beforeEach, describe, expect, it } from 'vitest'
 import HistoryView from './components/HistoryView.vue'
 import { addPlayer, data, endSession, ratingReportsBySession, startSession, submitScore, ui } from './store'
+import { createUnknownSnapshot } from './lib/scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 const resetStore = () => {
   data.players.splice(0)
@@ -20,9 +24,9 @@ describe('歷史 rating 顯示', () => {
   it('在姓名上方顯示單場變動，活動摘要按鈕預設收合', async () => {
     const a = addPlayer('小明', 1500)
     const b = addPlayer('阿華', 1500)
-    startSession([a.id, b.id])
+    startSession([a.id, b.id], TEST_FORMAT)
     const session = data.sessions[0]!
-    ui.live = { mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [] }
+    ui.live = { mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 18)).toBeNull()
     endSession()
 
@@ -43,7 +47,7 @@ describe('歷史 rating 顯示', () => {
 
   it('已結束但沒有比賽的活動仍提供摘要', async () => {
     const player = addPlayer('旁觀者', 1500)
-    startSession([player.id])
+    startSession([player.id], TEST_FORMAT)
     endSession()
 
     const html = await renderToString(createSSRApp(HistoryView))
@@ -55,10 +59,10 @@ describe('歷史 rating 顯示', () => {
   it('加入順序不可靠的舊活動不顯示整日摘要按鈕', async () => {
     const a = addPlayer('小明', 1500)
     const b = addPlayer('阿華', 1500)
-    startSession([a.id, b.id])
+    startSession([a.id, b.id], TEST_FORMAT)
     const session = data.sessions[0]!
     session.participantOrderReliable = false
-    ui.live = { mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [] }
+    ui.live = { mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [], scoringFormat: TEST_FORMAT }
     expect(submitScore(21, 18)).toBeNull()
     endSession()
 

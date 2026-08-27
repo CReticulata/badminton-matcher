@@ -1,3 +1,7 @@
+import type { ScoringFormatSnapshot } from './lib/scoring-format'
+
+export type { ScoringFormatSnapshot } from './lib/scoring-format'
+
 export type Mode = 'doubles' | 'singles'
 
 export interface RatingSnapshot {
@@ -54,6 +58,8 @@ export interface Match {
   scoreB: number
   /** 該回合休息者（含自願休息），用於休息次數統計 */
   resters: string[]
+  /** 開打前凍結的賽制來源；舊資料為 legacy-missing，不得由比分反推 */
+  scoringFormat: ScoringFormatSnapshot
 }
 
 /** 單一場次（一天的活動） */
@@ -77,6 +83,8 @@ export interface Session {
   /** 本回合自願休息者 */
   volunteerRest: string[]
   active: boolean
+  /** 尚未開打的比賽會繼承的預設賽制；變更只影響之後的比賽 */
+  defaultScoringFormat: ScoringFormatSnapshot
 }
 
 export interface AppData {
@@ -87,10 +95,15 @@ export interface AppData {
   baselines: RatingBaseline[]
 }
 
-/** 分組結果 */
+/** 分組結果（純 matchmaking 值，不含賽制） */
 export interface RoundProposal {
   mode: Mode
   teamA: string[]
   teamB: string[]
   resters: string[]
+}
+
+/** 分組加上一份獨立的賽制快照；開打前可換，開打後凍結 */
+export interface MatchContext extends RoundProposal {
+  readonly scoringFormat: ScoringFormatSnapshot
 }

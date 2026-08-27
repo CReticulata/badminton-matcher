@@ -6,6 +6,10 @@ import {
   generateRound,
   type Candidate,
 } from '../matchmaking'
+import { createUnknownSnapshot } from '../scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 const mk = (
   id: string,
@@ -44,7 +48,7 @@ const completedMatch = (
   teamB: playing.slice(2),
   scoreA: 21,
   scoreB: 15,
-  resters: [],
+  resters: [], scoringFormat: TEST_FORMAT,
 })
 
 describe('consecutivePlayCounts', () => {
@@ -74,7 +78,7 @@ describe('consecutivePlayCounts', () => {
       teamB: ['b'],
       scoreA: 21,
       scoreB: 18,
-      resters: ['c', 'd'],
+      resters: ['c', 'd'], scoringFormat: TEST_FORMAT,
     }
     const counts = consecutivePlayCounts(
       [

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { migrateAppData } from '../migration'
 import type { AppData } from '../../types'
+import { createUnknownSnapshot } from '../scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 const oldData = (): AppData => ({
   players: [
@@ -10,11 +14,11 @@ const oldData = (): AppData => ({
   ],
   sessions: [{
     id: 's1', name: '舊活動', startedAt: 100,
-    presentIds: ['a'], leftIds: ['b', 'late'], volunteerRest: [], active: false,
+    presentIds: ['a'], leftIds: ['b', 'late'], volunteerRest: [], active: false, defaultScoringFormat: TEST_FORMAT,
   }],
   matches: [{
     id: 'm1', sessionId: 's1', at: 200, mode: 'singles',
-    teamA: ['a'], teamB: ['b'], scoreA: 21, scoreB: 18, resters: ['late'],
+    teamA: ['a'], teamB: ['b'], scoreA: 21, scoreB: 18, resters: ['late'], scoringFormat: TEST_FORMAT,
   }],
   overrides: [],
   baselines: [],

@@ -9,14 +9,26 @@ import {
   playerById,
   proposeRound,
   sessionStats,
+  setSessionDefaultScoringFormat,
   startSession,
   toggleVolunteerRest,
   ui,
 } from '../store'
+import {
+  createUnknownSnapshot,
+  displayScoringFormat,
+  type ScoringFormatSnapshot,
+} from '../lib/scoring-format'
 import PlayerChip from './PlayerChip.vue'
+import ScoringFormatPicker from './ScoringFormatPicker.vue'
 
 const checked = ref<Set<string>>(new Set())
 const message = ref('')
+
+/** 開場前必須明確選擇賽制；null 代表尚未選擇，不預選任何目錄項目 */
+const newFormat = ref<ScoringFormatSnapshot | null>(null)
+const editingDefault = ref(false)
+const draftBase = computed(() => newFormat.value ?? createUnknownSnapshot('explicit-unknown'))
 
 function toggleCheck(id: string) {
   const s = new Set(checked.value)
@@ -26,13 +38,25 @@ function toggleCheck(id: string) {
 }
 
 function onStart() {
-  if (checked.value.size === 0) return
-  startSession([...checked.value])
+  if (checked.value.size === 0 || !newFormat.value) return
+  startSession([...checked.value], newFormat.value)
   checked.value = new Set()
+  newFormat.value = null
   message.value = ''
 }
 
 const sess = currentSession
+
+/** 舊資料的活動沒有賽制紀錄，下一場開打前必須先明確選擇 */
+const needsLegacyChoice = computed(
+  () => sess.value?.defaultScoringFormat.kind === 'unknown'
+    && sess.value.defaultScoringFormat.reason === 'legacy-missing',
+)
+
+function onSaveDefault(snapshot: ScoringFormatSnapshot) {
+  setSessionDefaultScoringFormat(snapshot)
+  editingDefault.value = false
+}
 const presentPlayers = computed(() =>
   (sess.value?.presentIds ?? [])
     .map((id) => playerById.value.get(id))
@@ -81,13 +105,30 @@ function onEnd() {
           </label>
         </li>
       </ul>
+      <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <p class="mb-2 text-sm text-slate-600">
+          選擇今天的計分賽制。之後可以更改，但只會影響尚未開打的比賽。
+        </p>
+        <p v-if="newFormat" class="mb-2 text-sm font-medium text-teal-800">
+          已選擇：{{ displayScoringFormat(newFormat) }}
+        </p>
+        <ScoringFormatPicker
+          :model-value="draftBase"
+          id-prefix="new-session-format"
+          @save="newFormat = $event"
+          @cancel="newFormat = null"
+        />
+      </div>
       <button
-        class="w-full rounded-xl bg-teal-700 py-3 font-medium text-white disabled:opacity-40"
-        :disabled="checked.size === 0"
+        class="min-h-11 w-full rounded-xl bg-teal-700 py-3 font-medium text-white disabled:opacity-40"
+        :disabled="checked.size === 0 || !newFormat"
         @click="onStart"
       >
         開始場次（{{ checked.size }} 人）
       </button>
+      <p v-if="checked.size > 0 && !newFormat" class="mt-2 text-center text-sm text-slate-500">
+        請先選擇計分賽制
+      </p>
     </template>
 
     <!-- 場次進行中 -->
@@ -119,12 +160,51 @@ function onEnd() {
         {{ message }}
       </p>
 
-      <button
-        class="mb-2 w-full rounded-xl bg-teal-700 py-3 text-lg font-medium text-white hover:bg-teal-800"
-        @click="onPropose"
+      <!-- 舊活動缺賽制紀錄：下一場開打前必須明確選擇，不由比分推測 -->
+      <div
+        v-if="needsLegacyChoice"
+        class="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3"
       >
-        產生下一場分組
-      </button>
+        <h3 class="mb-1 text-sm font-bold text-amber-900">這個活動沒有賽制紀錄</h3>
+        <p class="mb-3 text-sm text-amber-900">
+          這是升級前建立的活動。既有比賽維持「未知」不做更動；請為接下來的比賽明確選擇賽制。
+        </p>
+        <ScoringFormatPicker
+          :model-value="sess.defaultScoringFormat"
+          id-prefix="legacy-session-format"
+          @save="onSaveDefault"
+          @cancel="editingDefault = false"
+        />
+      </div>
+
+      <template v-else>
+        <div class="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <span class="text-xs text-slate-500">賽制</span>
+          <span class="text-sm">{{ displayScoringFormat(sess.defaultScoringFormat) }}</span>
+          <button
+            class="ml-auto rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-500"
+            @click="editingDefault = !editingDefault"
+          >
+            {{ editingDefault ? '收起' : '更改' }}
+          </button>
+        </div>
+        <div v-if="editingDefault" class="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p class="mb-2 text-sm text-slate-600">只影響尚未開打的比賽，已完成的紀錄不會變動。</p>
+          <ScoringFormatPicker
+            :model-value="sess.defaultScoringFormat"
+            id-prefix="session-default-format"
+            @save="onSaveDefault"
+            @cancel="editingDefault = false"
+          />
+        </div>
+
+        <button
+          class="mb-2 min-h-11 w-full rounded-xl bg-teal-700 py-3 text-lg font-medium text-white hover:bg-teal-800"
+          @click="onPropose"
+        >
+          產生下一場分組
+        </button>
+      </template>
 
       <!-- 在場名單 -->
       <h3 class="mb-2 mt-4 text-sm font-semibold text-slate-600">

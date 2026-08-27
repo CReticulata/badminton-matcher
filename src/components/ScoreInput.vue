@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { playerById, submitScore, ui } from '../store'
+import { displayScoringFormat } from '../lib/scoring-format'
 
 const scoreA = ref<string | number>('')
 const scoreB = ref<string | number>('')
@@ -40,7 +41,11 @@ function onSubmit() {
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
   >
     <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-      <h2 class="mb-4 text-center text-lg font-bold text-slate-800">輸入比分</h2>
+      <h2 class="mb-1 text-center text-lg font-bold text-slate-800">輸入比分</h2>
+      <!-- 開打前凍結的賽制，唯讀 -->
+      <p class="mb-4 text-center text-xs text-slate-500">
+        {{ displayScoringFormat(live.scoringFormat) }}
+      </p>
       <div class="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div class="text-center">
           <p class="mb-2 text-sm font-medium text-slate-600">{{ names(live.teamA) }}</p>

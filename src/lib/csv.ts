@@ -4,6 +4,12 @@
  * 陣列欄位以 "|" 連接。
  */
 import type { AppData, Match, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'
+import { createUnknownSnapshot, decodeScoringFormat, encodeScoringFormat } from './scoring-format'
+
+/** 匯入上限：對應瀏覽器 localStorage 實際放得下的量級 */
+export const IMPORT_MAX_BYTES = 5 * 1024 * 1024
+export const IMPORT_MAX_RECORDS = 50_000
+export const IMPORT_MAX_FIELD_BYTES = 64 * 1024
 
 function esc(v: string | number | boolean): string {
   const s = String(v)
@@ -66,8 +72,14 @@ const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
 const SESSION_HEADER = [
   'id', 'name', 'startedAt', 'endedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active',
   'participantIds', 'participantOrderReliable', 'addedDuringSessionIds', 'openingRatings',
+  'defaultScoringFormat',
 ]
-const MATCH_HEADER = ['id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters']
+const MATCH_HEADER = [
+  'id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters',
+  'scoringFormat',
+]
+
+const KNOWN_SECTIONS = ['players', 'overrides', 'baselines', 'sessions', 'matches'] as const
 
 export function exportCsv(data: AppData): string {
   const lines: string[] = []
@@ -93,6 +105,7 @@ export function exportCsv(data: AppData): string {
         joinIds(s.leftIds), joinIds(s.volunteerRest), s.active,
         joinIds(s.participantIds ?? []), s.participantOrderReliable ?? '',
         joinIds(s.addedDuringSessionIds ?? []), s.openingRatings ? JSON.stringify(s.openingRatings) : '',
+        encodeScoringFormat(s.defaultScoringFormat),
       ]
         .map(esc)
         .join(','),
@@ -101,7 +114,10 @@ export function exportCsv(data: AppData): string {
   lines.push('[matches]', MATCH_HEADER.join(','))
   for (const m of data.matches) {
     lines.push(
-      [m.id, m.sessionId, m.at, m.mode, joinIds(m.teamA), joinIds(m.teamB), m.scoreA, m.scoreB, joinIds(m.resters)]
+      [
+        m.id, m.sessionId, m.at, m.mode, joinIds(m.teamA), joinIds(m.teamB),
+        m.scoreA, m.scoreB, joinIds(m.resters), encodeScoringFormat(m.scoringFormat),
+      ]
         .map(esc)
         .join(','),
     )
@@ -109,9 +125,39 @@ export function exportCsv(data: AppData): string {
   return lines.join('\n') + '\n'
 }
 
+/** 欄位不存在＝舊備份，補 legacy-missing；有值但解不開＝損毀，整批拒絕 */
+function decodeFormatCell(cell: string | undefined, where: string) {
+  if (cell === undefined || cell === '') return createUnknownSnapshot('legacy-missing')
+  try {
+    return decodeScoringFormat(cell)
+  } catch (error) {
+    throw new Error(`${where} 的賽制欄位無效：${(error as Error).message}`)
+  }
+}
+
+const utf8Bytes = (s: string) => new TextEncoder().encode(s).length
+
+/** 在解析任何列之前先擋掉超量檔案，避免耗盡瀏覽器記憶體或寫入半套資料 */
+function assertImportBudget(text: string) {
+  if (utf8Bytes(text) > IMPORT_MAX_BYTES) {
+    throw new Error(`CSV 超過 ${IMPORT_MAX_BYTES / 1024 / 1024} MiB 上限`)
+  }
+  let records = 0
+  for (const raw of splitRecords(text)) {
+    if (++records > IMPORT_MAX_RECORDS) throw new Error(`CSV 超過 ${IMPORT_MAX_RECORDS} 列上限`)
+    for (const cell of parseLine(raw)) {
+      if (utf8Bytes(cell) > IMPORT_MAX_FIELD_BYTES) {
+        throw new Error(`CSV 有欄位超過 ${IMPORT_MAX_FIELD_BYTES / 1024} KiB 上限`)
+      }
+    }
+  }
+}
+
 /** 解析匯入的 CSV；格式錯誤時 throw Error（訊息為繁中） */
 export function importCsv(text: string): AppData {
+  assertImportBudget(text)
   const data: AppData = { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
+  const seenSections = new Set<string>()
   let section: string | null = null
   let header: string[] | null = null
 
@@ -131,6 +177,8 @@ export function importCsv(text: string): AppData {
     const secMatch = /^\[(\w+)\]$/.exec(line.trim())
     if (secMatch) {
       section = secMatch[1]!
+      if (seenSections.has(section)) throw new Error(`CSV 區段重複：[${section}]`)
+      seenSections.add(section)
       header = null
       continue
     }
@@ -138,7 +186,15 @@ export function importCsv(text: string): AppData {
     const cells = parseLine(line)
     if (!header) {
       header = cells.map((c) => c.trim())
+      if ((KNOWN_SECTIONS as readonly string[]).includes(section)) {
+        const dup = header.find((h, i) => header!.indexOf(h) !== i)
+        if (dup !== undefined) throw new Error(`[${section}] 區段的欄位名稱重複：${dup}`)
+      }
       continue
+    }
+    // 已知區段的資料列寬度必須與標頭一致；多欄或缺欄屬損毀，不是舊資料
+    if ((KNOWN_SECTIONS as readonly string[]).includes(section) && cells.length !== header.length) {
+      throw new Error(`[${section}] 區段有一列的欄位數（${cells.length}）與標頭（${header.length}）不符`)
     }
     const row: Record<string, string> = {}
     header.forEach((h, i) => (row[h] = cells[i] ?? ''))
@@ -185,6 +241,7 @@ export function importCsv(text: string): AppData {
         leftIds: splitIds(row.leftIds ?? ''),
         volunteerRest: splitIds(row.volunteerRest ?? ''),
         active: row.active === 'true',
+        defaultScoringFormat: decodeFormatCell(row.defaultScoringFormat, `活動「${row.name ?? ''}」`),
       }
       const endedAt = optionalNum(row.endedAt, 'endedAt')
       if (endedAt !== undefined) s.endedAt = endedAt
@@ -223,6 +280,7 @@ export function importCsv(text: string): AppData {
         scoreA: num(row.scoreA, 'scoreA'),
         scoreB: num(row.scoreB, 'scoreB'),
         resters: splitIds(row.resters ?? ''),
+        scoringFormat: decodeFormatCell(row.scoringFormat, `比賽 ${row.id ?? ''}`),
       }
       data.matches.push(m)
     }

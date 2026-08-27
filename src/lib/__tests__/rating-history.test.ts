@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { sessionRatingReport } from '../rating-history'
 import type { Match, RatingBaseline, RatingOverride, Session } from '../../types'
+import { createUnknownSnapshot } from '../scoring-format'
+
+/** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
+const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
 
 const session: Session = {
   id: 's1',
@@ -17,7 +21,7 @@ const session: Session = {
   presentIds: [],
   leftIds: ['c', 'a', 'b'],
   volunteerRest: [],
-  active: false,
+  active: false, defaultScoringFormat: TEST_FORMAT,
 }
 
 const match = (id: string, at: number, teamA: string[], teamB: string[], scoreA: number, scoreB: number): Match => ({
@@ -29,7 +33,7 @@ const match = (id: string, at: number, teamA: string[], teamB: string[], scoreA:
   teamB,
   scoreA,
   scoreB,
-  resters: [],
+  resters: [], scoringFormat: TEST_FORMAT,
 })
 
 describe('sessionRatingReport', () => {

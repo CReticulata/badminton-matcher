@@ -2,7 +2,10 @@
  * 全域 store：Vue reactivity + localStorage 持久化。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import type { AppData, Match, Mode, Player, RoundProposal, Session } from './types'
+import type {
+  AppData, Match, MatchContext, Mode, Player, RoundProposal,
+  ScoringFormatSnapshot, Session,
+} from './types'
 import {
   DEFAULT_RD,
   DEFAULT_VOL,
@@ -21,8 +24,13 @@ import { nextDefaultColor } from './lib/color'
 import { exportCsv, importCsv } from './lib/csv'
 import { sessionRatingReport } from './lib/rating-history'
 import { migrateAppData } from './lib/migration'
-
-const STORAGE_KEY = 'badminton-matcher:v1'
+import { normalizeAppData } from './lib/app-data-normalization'
+import {
+  STORAGE_KEY,
+  ensurePreFormatBackup,
+  loadPersisted,
+} from './lib/persistence'
+import { cloneScoringFormat, isLegalEndpoint, isStructured } from './lib/scoring-format'
 
 const INITIAL_TIERS = [
   '新手階',
@@ -51,33 +59,41 @@ export const INITIAL_LEVELS = INITIAL_TIERS.map((tier, index) => ({
   rating: 800 + index * 100,
 }))
 
-function loadData(): AppData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const d = JSON.parse(raw) as AppData
-      return migrateAppData({
-        players: d.players ?? [],
-        sessions: d.sessions ?? [],
-        matches: d.matches ?? [],
-        overrides: d.overrides ?? [],
-        baselines: d.baselines ?? [],
-      })
-    }
-  } catch {
-    /* 壞資料視為空 */
-  }
-  return { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
-}
+const storage = (): Storage | undefined =>
+  typeof localStorage === 'undefined' ? undefined : localStorage
 
-export const data = reactive<AppData>(loadData())
+const outcome = loadPersisted(storage())
+
+/**
+ * 復原狀態：blocked 代表本機資料讀不懂但已原樣保留，此時停用自動儲存與所有變更指令。
+ * 與 persistenceError（載入成功但寫入失敗）刻意分開——兩者要使用者做的事不同。
+ */
+export const recoveryState = ref<
+  { status: 'ready' } | { status: 'blocked'; raw: string; message: string }
+>(outcome.status === 'ready' ? { status: 'ready' } : { status: 'blocked', raw: outcome.raw, message: outcome.message })
+
+/** 舊格式原始值；首次寫入含賽制欄位的資料前需先備份 */
+let preFormatRaw: string | null = outcome.status === 'ready' ? outcome.raw : null
+
+export const data = reactive<AppData>(
+  outcome.status === 'ready'
+    ? outcome.data
+    : { players: [], sessions: [], matches: [], overrides: [], baselines: [] },
+)
 
 export const persistenceError = ref<string | null>(null)
 
 export function persistData(): boolean {
-  if (typeof localStorage === 'undefined') return true
+  const store = storage()
+  if (!store) return true
+  if (recoveryState.value.status === 'blocked') return false
+  if (!ensurePreFormatBackup(store, preFormatRaw)) {
+    persistenceError.value = '無法建立舊格式備份，資料尚未儲存到此裝置。請先匯出 CSV 備份。'
+    return false
+  }
+  preFormatRaw = null
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    store.setItem(STORAGE_KEY, JSON.stringify(data))
     persistenceError.value = null
     return true
   } catch {
@@ -88,17 +104,35 @@ export function persistData(): boolean {
 
 watch(
   data,
-  persistData,
+  () => {
+    if (recoveryState.value.status === 'blocked') return
+    persistData()
+  },
   { deep: true },
 )
+
+/** 復原：捨棄讀不懂的本機資料並從空白開始（呼叫端負責取得明確確認） */
+export function discardBlockedData() {
+  if (recoveryState.value.status !== 'blocked') return
+  const store = storage()
+  if (store) ensurePreFormatBackup(store, recoveryState.value.raw)
+  preFormatRaw = null
+  data.players = [] as typeof data.players
+  data.sessions = [] as typeof data.sessions
+  data.matches = [] as typeof data.matches
+  data.overrides = [] as typeof data.overrides
+  data.baselines = [] as typeof data.baselines
+  recoveryState.value = { status: 'ready' }
+  persistData()
+}
 
 /** UI 流程狀態（不持久化） */
 export const ui = reactive<{
   view: 'session' | 'players' | 'history'
-  /** 待確認的分組（分組預覽） */
-  pending: RoundProposal | null
-  /** 進行中的比賽（對戰顯示畫面） */
-  live: RoundProposal | null
+  /** 待確認的分組（分組預覽）；含開打前可更換的賽制 */
+  pending: MatchContext | null
+  /** 進行中的比賽（對戰顯示畫面）；賽制已凍結 */
+  live: MatchContext | null
   /** 顯示比分輸入 */
   scoring: boolean
   mode: Mode
@@ -239,7 +273,7 @@ export const removePlayer = archivePlayer
 
 // ---------- 場次 ----------
 
-export function startSession(presentIds: string[]) {
+export function startSession(presentIds: string[], defaultScoringFormat: ScoringFormatSnapshot) {
   for (const s of data.sessions) s.active = false
   const now = new Date()
   data.sessions.push({
@@ -258,9 +292,24 @@ export function startSession(presentIds: string[]) {
     leftIds: [],
     volunteerRest: [],
     active: true,
+    defaultScoringFormat: cloneScoringFormat(defaultScoringFormat),
   })
   ui.pending = null
   ui.live = null
+}
+
+/** 變更活動預設賽制；只影響尚未開打的比賽，既有 live／已完成快照不受影響 */
+export function setSessionDefaultScoringFormat(snapshot: ScoringFormatSnapshot) {
+  const s = currentSession.value
+  if (!s) return
+  s.defaultScoringFormat = cloneScoringFormat(snapshot)
+  if (ui.pending) ui.pending = { ...ui.pending, scoringFormat: cloneScoringFormat(snapshot) }
+}
+
+/** 開打前覆寫本場賽制；不改動活動預設 */
+export function setPendingScoringFormat(snapshot: ScoringFormatSnapshot) {
+  if (!ui.pending) return
+  ui.pending = { ...ui.pending, scoringFormat: cloneScoringFormat(snapshot) }
 }
 
 export function endSession() {
@@ -322,9 +371,11 @@ function candidates(): Candidate[] {
 
 /** 產生下一場分組（進入預覽）；人數不足回傳 false */
 export function proposeRound(): boolean {
-  const proposal = generateRound(candidates(), ui.mode)
+  const session = currentSession.value
+  if (!session) return false
+  const proposal: RoundProposal | null = generateRound(candidates(), ui.mode)
   if (!proposal) return false
-  ui.pending = proposal
+  ui.pending = { ...proposal, scoringFormat: cloneScoringFormat(session.defaultScoringFormat) }
   return true
 }
 
@@ -348,9 +399,10 @@ export function swapInPending(idA: string, idB: string) {
   b.list[b.i] = tmp
 }
 
+/** 開打：把選定的賽制凍結進 live context，此後不可更換 */
 export function startMatch() {
   if (!ui.pending) return
-  ui.live = ui.pending
+  ui.live = { ...ui.pending, scoringFormat: cloneScoringFormat(ui.pending.scoringFormat) }
   ui.pending = null
 }
 
@@ -358,15 +410,33 @@ export function cancelPending() {
   ui.pending = null
 }
 
+/**
+ * 終局比分驗證。結構化賽制套用凍結的規則；unknown 維持既有寬鬆規則（不等的非負整數）。
+ * 回傳錯誤訊息或 null；必須在寫入紀錄與任何 rating 變更之前呼叫。
+ */
+function validateEndpoint(
+  snapshot: ScoringFormatSnapshot,
+  scoreA: number,
+  scoreB: number,
+): string | null {
+  if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
+    return '比分必須是非負整數'
+  }
+  if (scoreA === scoreB) return '比分不可平手'
+  if (isStructured(snapshot) && !isLegalEndpoint(snapshot, scoreA, scoreB)) {
+    const { target, winBy, cap } = snapshot.rules
+    return `比分不符合本場賽制（${target} 分制、領先 ${winBy} 分、上限 ${cap} 分）`
+  }
+  return null
+}
+
 /** 賽後輸入比分：寫入紀錄、依實際分組更新 rating 與統計 */
 export function submitScore(scoreA: number, scoreB: number): string | null {
   const live = ui.live
   const sess = currentSession.value
   if (!live || !sess) return '沒有進行中的比賽'
-  if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
-    return '比分必須是非負整數'
-  }
-  if (scoreA === scoreB) return '比分不可平手'
+  const formatError = validateEndpoint(live.scoringFormat, scoreA, scoreB)
+  if (formatError) return formatError
 
   const match: Match = {
     id: genId(),
@@ -378,6 +448,7 @@ export function submitScore(scoreA: number, scoreB: number): string | null {
     scoreA,
     scoreB,
     resters: [...live.resters],
+    scoringFormat: cloneScoringFormat(live.scoringFormat),
   }
   data.matches.push(match)
 
@@ -456,10 +527,9 @@ function runFullRecalc() {
 export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {
   const m = data.matches.find((x) => x.id === matchId)
   if (!m) return '找不到這場比賽'
-  if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
-    return '比分必須是非負整數'
-  }
-  if (scoreA === scoreB) return '比分不可平手'
+  // 驗證位於重播決策的上游：只會擋下修改，不影響哪些事件重播或邊界在哪
+  const formatError = validateEndpoint(m.scoringFormat, scoreA, scoreB)
+  if (formatError) return formatError
   m.scoreA = scoreA
   m.scoreB = scoreB
   runFullRecalc()
@@ -539,9 +609,14 @@ export function downloadCsvBackup() {
   URL.revokeObjectURL(url)
 }
 
-/** 覆蓋還原；格式錯誤時 throw */
+/**
+ * 覆蓋還原；格式錯誤時 throw。
+ * 解析與正規化全部成功後才取代資料——失敗時目前資料與 blocked 狀態都不動。
+ * 這也是復原流程的還原路徑：成功後才解除封鎖並重新啟用自動儲存。
+ */
 export function importCsvText(text: string) {
-  const parsed = migrateAppData(importCsv(text))
+  const parsed = migrateAppData(normalizeAppData(importCsv(text)))
+  const blocked = recoveryState.value.status === 'blocked' ? recoveryState.value.raw : null
   data.players = parsed.players as typeof data.players
   data.sessions = parsed.sessions as typeof data.sessions
   data.matches = parsed.matches as typeof data.matches
@@ -550,4 +625,11 @@ export function importCsvText(text: string) {
   ui.pending = null
   ui.live = null
   ui.scoring = false
+  if (blocked !== null) {
+    // 先保留讀不懂的原始值，再解除封鎖並寫入還原後的資料
+    ensurePreFormatBackup(storage(), blocked)
+    preFormatRaw = null
+    recoveryState.value = { status: 'ready' }
+    persistData()
+  }
 }

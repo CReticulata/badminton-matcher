@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { persistenceError, ui } from "./store";
+import { persistenceError, recoveryState, ui } from "./store";
 import SessionView from "./components/SessionView.vue";
 import PlayersView from "./components/PlayersView.vue";
 import HistoryView from "./components/HistoryView.vue";
 import PreviewView from "./components/PreviewView.vue";
 import MatchDisplay from "./components/MatchDisplay.vue";
 import ScoreInput from "./components/ScoreInput.vue";
+import RecoveryView from "./components/RecoveryView.vue";
 
 const tabs = [
   { key: "session", label: "場次" },
@@ -33,13 +34,15 @@ const tabs = [
     </div>
 
     <main>
-      <SessionView v-if="ui.view === 'session'" />
+      <RecoveryView v-if="recoveryState.status === 'blocked'" />
+      <SessionView v-else-if="ui.view === 'session'" />
       <PlayersView v-else-if="ui.view === 'players'" />
       <HistoryView v-else />
     </main>
 
-    <!-- 底部分頁列 -->
+    <!-- 底部分頁列（復原期間不提供） -->
     <nav
+      v-if="recoveryState.status === 'ready'"
       class="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)]"
       aria-label="主選單"
     >
@@ -58,8 +61,10 @@ const tabs = [
     </nav>
 
     <!-- 覆蓋層流程：分組預覽 → 對戰顯示 → 比分輸入 -->
-    <PreviewView />
-    <MatchDisplay />
-    <ScoreInput />
+    <template v-if="recoveryState.status === 'ready'">
+      <PreviewView />
+      <MatchDisplay />
+      <ScoreInput />
+    </template>
   </div>
 </template>
