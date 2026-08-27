@@ -130,6 +130,12 @@ q = sigmoid(beta * Δrating / 100)
 
 原始證據保留在該分支的 git 歷史（`analysis/`、`openspec/`、`docs/research/`），未合併至 `main`。
 
+## 相關調查
+
+- 匹克球主流評分系統（DUPR、UTR-P、WPR、VAIR）與由此衍生的第三個候選：
+  `docs/research/pickleball-rating-systems.md`。DUPR 自 2025-07 起改為比對實際得分與
+  預期得分；其 Reliability Score 實質上是 RD 的重新發明，而 WPR 與 VAIR 本來就用 Glicko-2。
+
 ## 參考
 
 - 決策邊界與候選訊號複雜度順序：該分支的 `docs/features/score-aware-model-decision-tree.md`
