@@ -85,7 +85,7 @@ describe('比分寫入把關', () => {
   it('自訂賽制套用自己的規則', () => {
     const a = addPlayer('A', 1500)
     const b = addPlayer('B', 1500)
-    const custom = createCustomSnapshot('11 分', { target: 11, winBy: 2, cap: 11 })
+    const custom = createCustomSnapshot('11 分', { target: 11, winBy: 2, cap: 15 })
     startSession([a.id, b.id], custom)
     liveMatch(custom, [a.id, b.id])
     expect(submitScore(11, 10)).toMatch(/賽制/)

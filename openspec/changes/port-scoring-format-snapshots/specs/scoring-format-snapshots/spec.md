@@ -29,7 +29,7 @@ Every scoring-format snapshot MUST use exactly one versioned, immutable variant:
 
 ### Requirement: Structured rules and terminal scores are deterministic
 
-Structured rules MUST be finite positive safe integers with `winBy <= target <= cap`. A terminal score MUST have one winner and nonnegative safe-integer scores. The endpoint branches are disjoint and selected by the winning score: when the winner equals `target`, including when `cap == target`, the loser is at most `target - winBy`; when the winner is above `target` and below `cap`, the margin equals `winBy`; when `cap > target` and the winner equals `cap`, the loser is at least `cap - winBy` and less than `cap`. Exchanging the two teams MUST preserve legality.
+Structured rules MUST be finite positive safe integers with `winBy <= target <= cap`, and MUST be able to terminate: when `cap` equals `target`, `winBy` MUST be 1, because otherwise a game tied at `target - 1` has no reachable legal endpoint. A terminal score MUST have one winner and nonnegative safe-integer scores. The endpoint branches are disjoint and selected by the winning score: when the winner equals `target`, including when `cap == target`, the loser is at most `target - winBy`; when the winner is above `target` and below `cap`, the margin equals `winBy`; when `cap > target` and the winner equals `cap`, the loser is at least `cap - winBy` and less than `cap`. Exchanging the two teams MUST preserve legality.
 
 #### Scenario: Game ends at target before deuce
 - **WHEN** the winner equals `target`, including when `cap == target`, and the loser has at most `target - winBy`
@@ -46,6 +46,14 @@ Structured rules MUST be finite positive safe integers with `winBy <= target <= 
 #### Scenario: Structured rules are malformed
 - **WHEN** a rule field is missing, non-safe-integer, nonpositive, nonfinite, has `winBy > target`, or has `cap < target`
 - **THEN** the format is rejected before it can become a session default, live snapshot, completed match, or imported record
+
+#### Scenario: Structured rules cannot terminate
+- **WHEN** `cap` equals `target` and `winBy` is greater than 1
+- **THEN** the format is rejected, because a game tied at `target - 1` could never reach a legal endpoint
+
+#### Scenario: Sudden death at the target is allowed
+- **WHEN** `cap` equals `target` and `winBy` is 1
+- **THEN** the format is accepted and a win at `target` against `target - 1` is a legal endpoint
 
 ### Requirement: Session defaults are explicit and prospective
 

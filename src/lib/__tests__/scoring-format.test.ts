@@ -91,8 +91,17 @@ describe('規則驗證', () => {
     })
   }
 
-  it('接受 cap === target', () => {
-    expect(() => createCustomSnapshot('一局定勝負', { target: 11, winBy: 2, cap: 11 })).not.toThrow()
+  it('接受 cap === target 且 winBy === 1（先到先贏，無 deuce）', () => {
+    expect(() => createCustomSnapshot('先到 11 分', { target: 11, winBy: 1, cap: 11 })).not.toThrow()
+  })
+
+  it('拒絕 cap === target 且 winBy ≧ 2（雙方同到 target−1 後打不完）', () => {
+    expect(() => createCustomSnapshot('打不完', { target: 11, winBy: 2, cap: 11 })).toThrow(/無法結束/)
+    expect(() => createCustomSnapshot('打不完', { target: 21, winBy: 3, cap: 21 })).toThrow(/無法結束/)
+  })
+
+  it('cap 只要比 target 多 1 就可終止', () => {
+    expect(() => createCustomSnapshot('11/2/12', { target: 11, winBy: 2, cap: 12 })).not.toThrow()
   })
 })
 
@@ -185,11 +194,11 @@ describe('isLegalEndpoint（15/2/21，本專案既有歷史的賽制）', () => 
   })
 })
 
-describe('isLegalEndpoint（cap === target）', () => {
-  const fmt = createCustomSnapshot('一局定勝負', { target: 11, winBy: 2, cap: 11 })
-  it('只接受 target 分支', () => {
+describe('isLegalEndpoint（cap === target，先到先贏）', () => {
+  const fmt = createCustomSnapshot('先到 11 分', { target: 11, winBy: 1, cap: 11 })
+  it('只接受 target 分支，且 11:10 合法（無 deuce）', () => {
     expect(isLegalEndpoint(fmt, 11, 9)).toBe(true)
-    expect(isLegalEndpoint(fmt, 11, 10)).toBe(false)
+    expect(isLegalEndpoint(fmt, 11, 10)).toBe(true)
     expect(isLegalEndpoint(fmt, 12, 10)).toBe(false)
   })
 })

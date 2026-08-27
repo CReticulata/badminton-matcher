@@ -74,6 +74,11 @@ function freezeRules(value: unknown): ScoringRules {
   if (!(rules.winBy <= rules.target && rules.target <= rules.cap)) {
     throw new Error('賽制規則需滿足 winBy ≦ target ≦ cap')
   }
+  // cap === target 且 winBy ≧ 2 的比賽打不完：雙方同時到達 target − 1 之後，
+  // 領先 winBy 分需要超過 cap，而 cap 又不允許超過 → 沒有可達的合法終局。
+  if (rules.cap === rules.target && rules.winBy !== 1) {
+    throw new Error('分數上限等於目標分時，需領先分數必須是 1，否則平手後比賽無法結束')
+  }
   return Object.freeze(rules)
 }
 
