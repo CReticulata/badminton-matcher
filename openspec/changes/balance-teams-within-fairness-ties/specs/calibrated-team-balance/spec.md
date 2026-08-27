@@ -44,7 +44,11 @@ Options whose team gap differs by no more than a defined tolerance MUST be treat
 
 #### Scenario: Repeated rounds with an unchanged roster
 - **WHEN** the same tie group is proposed repeatedly with no matches recorded
-- **THEN** the players selected vary rather than always seating the same mid-rated group and benching the rating extremes
+- **THEN** the selected groups and pairings vary rather than repeating one arrangement
+
+#### Scenario: A player far from the rest of the field
+- **WHEN** one candidate's rating is far enough from every other that no group containing them balances well
+- **THEN** they may be benched while tied, and the fairness rules still admit them unconditionally in the following round, keeping the play-count spread within one
 
 #### Scenario: A given random source is reproducible
 - **WHEN** the same candidates and the same seeded random source are supplied

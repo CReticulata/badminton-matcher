@@ -39,13 +39,24 @@ Singles has no split, so its gap is `|ratingA - ratingB|` and the search reduces
 
 ### 3. Treat near-equal gaps as equal, and break the tie randomly
 
-Collect every option within a tolerance of the best gap, then pick among them with the injected `Rng`.
+Collect every option within a tolerance of the best gap, then pick among them with the injected `Rng`. `Rng` stays injected, so seeded tests remain deterministic.
 
-This is not a cosmetic detail. With strict minimization the same mid-rated players are seated in every tie group and the strongest and weakest players are systematically benched until their play counts force them in. That is a fairness regression the fairness keys cannot see, because it happens entirely within a tie. A tolerance in rating points, on the order of the noise in the ratings themselves, restores variety at negligible balance cost.
+**The tolerance is for pairing variety, not for protecting the rating extremes.** An earlier draft of this design claimed it would stop the strongest and weakest players being systematically benched. Measured against the current roster with all ten players tied, it does not, and no value of it would:
 
-`Rng` stays injected, so seeded tests remain deterministic.
+| Tolerance | Equivalent options | Distinct players covered | Appearances of the top-rated player |
+|---:|---:|---:|---:|
+| 0 | 2 | 5 | 0 |
+| 25 | 37 | 10 | 1 |
+| 50 | 65 | 10 | 1 |
+| 100 | 105 | 10 | 2 |
 
-**Alternative considered:** strict argmin with the existing shuffle as the only tiebreak. Rejected for the reason above — exact ties are rare, near-ties are common.
+The strongest player is 336 rating points clear of the next; every group containing them is unbalanced, at any tolerance. What actually protects them is the fairness key: a player benched this round has a strictly lower play count next round, is admitted unconditionally, and the existing `max - min <= 1` play-count invariant still holds. The joint search then picks the three players who balance *around* them, which is the improvement working as intended.
+
+What the tolerance genuinely buys is variety of pairings. At tolerance 0 only two options are equivalent and they involve five of the ten players, so the same faces recur. At 25 every player appears across 37 options, and the worst admitted option is 26 points of team-sum gap — roughly 0.03 of a point of expected margin, which is nothing. Tolerance is therefore set to 25 rating points of team-sum difference.
+
+The expected-margin figure is used here only to justify the constant in prose. Selection must not depend on the coefficient, so the tolerance is expressed in rating points.
+
+**Alternative considered:** strict argmin with the existing shuffle as the only tiebreak. Rejected — exact ties are rare, near-ties are common, and strict minimization collapses pairing variety.
 
 **Alternative considered:** weight balance against a variety term. Rejected as unnecessary machinery for a group of at most a few dozen options.
 
@@ -72,7 +83,7 @@ Show a short qualitative band — an approximate margin with hedged wording — 
 ## Risks / Trade-offs
 
 - **[Risk] This is the core matchmaking path** → keep `balanceTeams()` untouched, add the wider search around it, and hold the existing `generateRound` tests as the regression contract for fairness ordering and rest lists.
-- **[Risk] Strict optimization would bench the rating extremes** → the tolerance and random tiebreak in decision 3 exist for this; it needs an explicit test over repeated rounds, not just a single-round assertion.
+- **[Risk] The rating extremes are seated last within every tie group** → measured and accepted: the fairness key bounds it to one round, and the existing play-count invariant is the regression test. The tolerance does not address this and is not claimed to.
 - **[Risk] Better balance makes matches feel repetitive** → the same tolerance mitigates it, but this is a felt quality that only real sessions can judge; worth revisiting after use rather than tuning blind.
 - **[Risk] A readout invites treating `beta` as precise** → hedged presentation, no scoreline, no win probability, and the CI recorded next to the constant.
 - **[Risk] `beta` was fitted on 29 matches under one format** → it affects display only; selection is unaffected by its value, so a wrong `beta` cannot corrupt matchmaking.
