@@ -15,6 +15,7 @@
 - [x] 3.1 RED: extend `src/store.test.ts` for normalize-or-block — malformed local value preserved unchanged, deep watcher does not write, mutating commands unavailable, and `persistenceError` unchanged and distinct from recovery state.
 - [x] 3.2 RED: add tests for the one-time `badminton-matcher:pre-scoring-format-v1` backup — idempotent, never overwritten, byte-for-byte readback required, write failure blocks the enriched write, fresh install needs no backup.
 - [x] 3.3 GREEN: replace `loadData()`'s catch-and-empty with the normalization boundary and recovery state in `src/store.ts`; gate the deep watcher while blocked.
+- [x] 3.6 GREEN: gate every data-mutating store command behind the blocked state, not only the interface; add tests covering each command and the recovery actions' exemption.
 - [x] 3.4 GREEN: add `src/components/RecoveryView.vue` with exactly three actions — download preserved raw JSON, import valid CSV, explicit discard after native confirmation — and wire it into `src/App.vue`.
 - [x] 3.5 Add tests for cancelled/failed recovery leaving raw value, in-memory data, and blocked state unchanged.
 
@@ -52,10 +53,14 @@
 
 ## 執行紀錄
 
-- `pnpm test`：17 files / 172 tests passed。
+- `pnpm test`：17 files / 175 tests passed。
 - `pnpm build`：`vue-tsc -b` 與 Vite production build 皆 exit 0。
 - `git diff --check`：exit 0。
 - `openspec validate port-scoring-format-snapshots --strict --no-interactive`：valid。
+- 以實際匯出的 29 場 CSV 驗證：匯入後 14 球員／2 活動／29 場全數保留，全部為
+  `legacy-missing`（無回填），`openingRatings` 與 `participantOrderReliable` 保留，
+  export → import → 再比對完全相等。自訂賽制名稱含雙引號、逗號、換行、空白、emoji
+  皆可 round-trip。
 - 非目標核對：`src/lib/glicko2.ts`、`src/lib/matchmaking.ts`、`src/lib/rating-history.ts`、
   `src/lib/migration.ts` 均未修改；`src/` 內無 `expectedMargin` 或任何已完成賽制的編輯入口；
   既有比賽一律 `legacy-missing`，未回填任何目錄賽制。

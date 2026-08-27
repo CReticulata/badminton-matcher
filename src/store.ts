@@ -111,6 +111,17 @@ watch(
   { deep: true },
 )
 
+export const BLOCKED_MESSAGE = '本機資料尚未復原，請先完成復原流程再繼續'
+
+/**
+ * blocked 期間任何會變更資料的指令都不可用。
+ * 只擋在 UI 層是不夠的——那讓「資料不被動到」取決於畫面剛好沒有入口，
+ * 之後新增入口或重構就會無聲失效。復原流程本身（importCsvText／discardBlockedData）除外。
+ */
+function isBlocked(): boolean {
+  return recoveryState.value.status === 'blocked'
+}
+
 /** 復原：捨棄讀不懂的本機資料並從空白開始（呼叫端負責取得明確確認） */
 export function discardBlockedData() {
   if (recoveryState.value.status !== 'blocked') return
@@ -210,6 +221,7 @@ export const sessionStats = computed(() => {
 // ---------- 參賽者 ----------
 
 export function addPlayer(name: string, initialRating: number): Player {
+  if (isBlocked()) throw new Error(BLOCKED_MESSAGE)
   const p: Player = {
     id: genId(),
     name: name.trim(),
@@ -232,17 +244,20 @@ export function addPlayer(name: string, initialRating: number): Player {
 }
 
 export function renamePlayer(id: string, name: string) {
+  if (isBlocked()) return
   const p = playerById.value.get(id)
   if (p && name.trim()) p.name = name.trim()
 }
 
 export function setPlayerColor(id: string, color: string) {
+  if (isBlocked()) return
   const p = playerById.value.get(id)
   if (p) p.color = color
 }
 
 /** 手動覆寫 rating：RD 重設為高值，並記錄事件供全量重算重播 */
 export function overrideRating(id: string, rating: number): boolean {
+  if (isBlocked()) return false
   if (currentSession.value) return false
   const p = playerById.value.get(id)
   if (!p) return false
@@ -254,6 +269,7 @@ export function overrideRating(id: string, rating: number): boolean {
 }
 
 export function archivePlayer(id: string): boolean {
+  if (isBlocked()) return false
   if (currentSession.value) return false
   const player = playerById.value.get(id)
   if (!player || player.archivedAt) return false
@@ -262,6 +278,7 @@ export function archivePlayer(id: string): boolean {
 }
 
 export function restorePlayer(id: string): boolean {
+  if (isBlocked()) return false
   const p = data.players.find((player) => player.id === id)
   if (!p || p.archivedAt === undefined) return false
   delete p.archivedAt
@@ -274,6 +291,7 @@ export const removePlayer = archivePlayer
 // ---------- 場次 ----------
 
 export function startSession(presentIds: string[], defaultScoringFormat: ScoringFormatSnapshot) {
+  if (isBlocked()) return
   for (const s of data.sessions) s.active = false
   const now = new Date()
   data.sessions.push({
@@ -300,6 +318,7 @@ export function startSession(presentIds: string[], defaultScoringFormat: Scoring
 
 /** 變更活動預設賽制；只影響尚未開打的比賽，既有 live／已完成快照不受影響 */
 export function setSessionDefaultScoringFormat(snapshot: ScoringFormatSnapshot) {
+  if (isBlocked()) return
   const s = currentSession.value
   if (!s) return
   s.defaultScoringFormat = cloneScoringFormat(snapshot)
@@ -308,11 +327,13 @@ export function setSessionDefaultScoringFormat(snapshot: ScoringFormatSnapshot) 
 
 /** 開打前覆寫本場賽制；不改動活動預設 */
 export function setPendingScoringFormat(snapshot: ScoringFormatSnapshot) {
+  if (isBlocked()) return
   if (!ui.pending) return
   ui.pending = { ...ui.pending, scoringFormat: cloneScoringFormat(snapshot) }
 }
 
 export function endSession() {
+  if (isBlocked()) return
   const s = currentSession.value
   if (s) {
     s.active = false
@@ -324,6 +345,7 @@ export function endSession() {
 }
 
 export function joinSession(playerId: string) {
+  if (isBlocked()) return
   const s = currentSession.value
   if (!s) return
   s.participantIds ??= [...s.presentIds, ...s.leftIds]
@@ -333,6 +355,7 @@ export function joinSession(playerId: string) {
 }
 
 export function leaveSession(playerId: string) {
+  if (isBlocked()) return
   const s = currentSession.value
   if (!s) return
   s.presentIds = s.presentIds.filter((x) => x !== playerId)
@@ -341,6 +364,7 @@ export function leaveSession(playerId: string) {
 }
 
 export function toggleVolunteerRest(playerId: string) {
+  if (isBlocked()) return
   const s = currentSession.value
   if (!s) return
   if (s.volunteerRest.includes(playerId)) {
@@ -371,6 +395,7 @@ function candidates(): Candidate[] {
 
 /** 產生下一場分組（進入預覽）；人數不足回傳 false */
 export function proposeRound(): boolean {
+  if (isBlocked()) return false
   const session = currentSession.value
   if (!session) return false
   const proposal: RoundProposal | null = generateRound(candidates(), ui.mode)
@@ -381,6 +406,7 @@ export function proposeRound(): boolean {
 
 /** 分組預覽中：交換兩人位置（隊伍 A/B/休息名單皆可） */
 export function swapInPending(idA: string, idB: string) {
+  if (isBlocked()) return
   const p = ui.pending
   if (!p || idA === idB) return
   const lists = [p.teamA, p.teamB, p.resters]
@@ -401,12 +427,14 @@ export function swapInPending(idA: string, idB: string) {
 
 /** 開打：把選定的賽制凍結進 live context，此後不可更換 */
 export function startMatch() {
+  if (isBlocked()) return
   if (!ui.pending) return
   ui.live = { ...ui.pending, scoringFormat: cloneScoringFormat(ui.pending.scoringFormat) }
   ui.pending = null
 }
 
 export function cancelPending() {
+  if (isBlocked()) return
   ui.pending = null
 }
 
@@ -432,6 +460,7 @@ function validateEndpoint(
 
 /** 賽後輸入比分：寫入紀錄、依實際分組更新 rating 與統計 */
 export function submitScore(scoreA: number, scoreB: number): string | null {
+  if (isBlocked()) return BLOCKED_MESSAGE
   const live = ui.live
   const sess = currentSession.value
   if (!live || !sess) return '沒有進行中的比賽'
@@ -525,6 +554,7 @@ function runFullRecalc() {
 }
 
 export function editMatchScore(matchId: string, scoreA: number, scoreB: number): string | null {
+  if (isBlocked()) return BLOCKED_MESSAGE
   const m = data.matches.find((x) => x.id === matchId)
   if (!m) return '找不到這場比賽'
   // 驗證位於重播決策的上游：只會擋下修改，不影響哪些事件重播或邊界在哪
@@ -537,6 +567,7 @@ export function editMatchScore(matchId: string, scoreA: number, scoreB: number):
 }
 
 export function deleteMatch(matchId: string) {
+  if (isBlocked()) return
   data.matches = data.matches.filter((m) => m.id !== matchId) as typeof data.matches
   runFullRecalc()
 }
@@ -569,6 +600,7 @@ export const latestBaselineAt = computed(() =>
 
 /** 清除單一場次的比賽紀錄。已結束場次連場次一併刪除；進行中場次僅刪 matches，保留場次與出席名單。 */
 export function clearSession(sessionId: string, resetRatings: boolean) {
+  if (isBlocked()) return
   const session = data.sessions.find((s) => s.id === sessionId)
   if (!session) return
 
@@ -583,6 +615,7 @@ export function clearSession(sessionId: string, resetRatings: boolean) {
 
 /** 清除全部歷史紀錄：所有比賽紀錄與已結束場次刪除；進行中場次保留（統計歸零）。 */
 export function clearAllHistory(resetRatings: boolean) {
+  if (isBlocked()) return
   if (!resetRatings) baselineAllPlayers()
 
   data.matches = [] as typeof data.matches

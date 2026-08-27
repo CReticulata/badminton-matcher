@@ -145,11 +145,15 @@ Local or CSV records that predate this capability and omit format fields MUST lo
 
 ### Requirement: Malformed local data is preserved behind a blocking recovery state
 
-Local normalization MUST complete before reactive data is exposed and before automatic persistence is enabled. When normalization fails, the raw stored value MUST be preserved, automatic persistence MUST stay disabled, and the product MUST enter a blocking recovery state. The existing persistence-failure warning remains a separate signal for write failures and MUST NOT be replaced by recovery state.
+Local normalization MUST complete before reactive data is exposed and before automatic persistence is enabled. When normalization fails, the raw stored value MUST be preserved, automatic persistence MUST stay disabled, and the product MUST enter a blocking recovery state. Every data-mutating command MUST be unavailable at the store boundary itself, not only hidden from the interface; only the recovery actions may proceed. The existing persistence-failure warning remains a separate signal for write failures and MUST NOT be replaced by recovery state.
 
 #### Scenario: Local value cannot be normalized
 - **WHEN** the active local value contains malformed explicit format data or a contradictory known endpoint
 - **THEN** the raw value is preserved unchanged, the deep persistence watcher does not write, and a blocking recovery screen replaces normal product actions
+
+#### Scenario: A mutating command is invoked while blocked
+- **WHEN** any command that would add, edit, or remove players, sessions, matches, ratings, or history is invoked while the product is blocked
+- **THEN** it performs no mutation, reports its unavailability through its own return contract, and writes nothing to local storage
 
 #### Scenario: Recovery succeeds
 - **WHEN** the user restores a completely valid CSV backup, or explicitly confirms discarding the blocked value after downloading it

@@ -120,3 +120,69 @@ describe('資料讀不懂時', () => {
     expect(mem.map.get(KEY)).toBe('{壞掉的 JSON')
   })
 })
+
+describe('blocked 期間變更指令不可用', () => {
+  /** 逐一呼叫每個變更指令，確認資料與 localStorage 都沒被動到 */
+  it('所有變更指令都是 no-op，且不寫入 localStorage', async () => {
+    mem.map.set(KEY, '{壞掉的 JSON')
+    const store = await loadStore()
+    const { createUnknownSnapshot } = await import('./lib/scoring-format')
+    const fmt = createUnknownSnapshot('explicit-unknown')
+    expect(store.recoveryState.value.status).toBe('blocked')
+
+    const snapshot = JSON.stringify(store.data)
+
+    // 回傳 boolean 者應為 false
+    expect(store.overrideRating('p1', 1600)).toBe(false)
+    expect(store.archivePlayer('p1')).toBe(false)
+    expect(store.restorePlayer('p1')).toBe(false)
+    expect(store.proposeRound()).toBe(false)
+
+    // 回傳錯誤訊息者應說明原因
+    expect(store.submitScore(15, 9)).toBe(store.BLOCKED_MESSAGE)
+    expect(store.editMatchScore('m1', 15, 9)).toBe(store.BLOCKED_MESSAGE)
+
+    // addPlayer 無法以回傳值表達失敗，明確 throw
+    expect(() => store.addPlayer('偷偷新增', 1500)).toThrow(store.BLOCKED_MESSAGE)
+
+    // 其餘為 void，直接確認沒有副作用
+    store.renamePlayer('p1', '改名')
+    store.setPlayerColor('p1', '#fff')
+    store.startSession([], fmt)
+    store.setSessionDefaultScoringFormat(fmt)
+    store.setPendingScoringFormat(fmt)
+    store.endSession()
+    store.joinSession('p1')
+    store.leaveSession('p1')
+    store.toggleVolunteerRest('p1')
+    store.swapInPending('p1', 'p2')
+    store.startMatch()
+    store.cancelPending()
+    store.deleteMatch('m1')
+    store.clearSession('s1', false)
+    store.clearAllHistory(false)
+
+    expect(JSON.stringify(store.data)).toBe(snapshot)
+    expect(store.data.players).toEqual([])
+    expect(store.data.sessions).toEqual([])
+    expect(mem.map.get(KEY)).toBe('{壞掉的 JSON')
+  })
+
+  it('復原流程本身不受 guard 影響', async () => {
+    mem.map.set(KEY, '{壞掉的 JSON')
+    const store = await loadStore()
+    store.discardBlockedData()
+    expect(store.recoveryState.value.status).toBe('ready')
+    // 解除封鎖後變更指令恢復可用
+    expect(() => store.addPlayer('正常新增', 1500)).not.toThrow()
+    expect(store.data.players).toHaveLength(1)
+  })
+
+  it('ready 狀態下 guard 不會誤擋', async () => {
+    const store = await loadStore()
+    expect(store.recoveryState.value.status).toBe('ready')
+    const p = store.addPlayer('甲', 1500)
+    expect(store.data.players).toHaveLength(1)
+    expect(store.overrideRating(p.id, 1600)).toBe(true)
+  })
+})
