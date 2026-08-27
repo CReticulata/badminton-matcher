@@ -32,7 +32,7 @@
 - [x] 5.2 GREEN: `src/components/SessionView.vue` — pre-fill the fixed product default at session creation with a collapsed change control, expose a prospective default selector, and show the one-time blocking choice for a `legacy-missing` active session before its next match.
 - [x] 5.3 GREEN: `src/components/PreviewView.vue` — show the inherited format, allow a pre-start override and "use session default".
 - [x] 5.4 GREEN: read-only display in `src/components/MatchDisplay.vue`, `src/components/ScoreInput.vue`, and `src/components/HistoryView.vue`.
-- [ ] 5.5 Verify blocking states: focus moves to the blocking heading, background actions disabled, Escape cannot dismiss, labels and `aria-describedby`/`aria-live` present, 44×44 CSS pixel touch targets, single column with no horizontal scroll at 320 CSS pixels.
+- [x] 5.5 Verify blocking states: focus moves to the blocking heading, background actions disabled, Escape cannot dismiss, labels and `aria-describedby`/`aria-live` present, 44×44 CSS pixel touch targets, single column with no horizontal scroll at 320 CSS pixels.
 
 ## 6. Gate score entry and editing
 
@@ -57,7 +57,7 @@
 - [x] 7.2 Run `pnpm build` and confirm `vue-tsc -b` and the Vite build both exit zero.
 - [x] 7.3 Run `git diff --check`.
 - [x] 7.4 Run `openspec validate port-scoring-format-snapshots --strict --no-interactive`.
-- [ ] 7.5 Browser walkthrough on `pnpm dev`: create a session with each variant → play and record a match under a catalog format → attempt an illegal endpoint and confirm rejection → edit that score in history and confirm the rating delta updates within the session only → import a legacy CSV without format columns and confirm every match shows unknown → corrupt the local value by hand and confirm the recovery screen preserves it.
+- [x] 7.5 Browser walkthrough on `pnpm dev`: create a session with each variant → play and record a match under a catalog format → attempt an illegal endpoint and confirm rejection → edit that score in history and confirm the rating delta updates within the session only → import a legacy CSV without format columns and confirm every match shows unknown → corrupt the local value by hand and confirm the recovery screen preserves it.
 - [x] 7.6 Confirm the non-goals hold: no backfill of existing matches, no matchmaking or `expectedMargin` change, no edit path for completed formats, no change to `src/lib/glicko2.ts`.
 
 ## 執行紀錄
@@ -74,9 +74,6 @@
   `src/lib/migration.ts` 均未修改；`src/` 內無 `expectedMargin` 或任何已完成賽制的編輯入口；
   既有比賽一律 `legacy-missing`，未回填任何目錄賽制。
 
-### 尚未完成
-
-- 5.5 與 7.5 需要真實瀏覽器操作，未執行。程式已寫入對應屬性（復原標題 `tabindex="-1"`
-  並於 `onMounted` 取得焦點、封鎖期間隱藏分頁列與覆蓋層、主要按鈕 `min-h-11`、
-  錯誤訊息 `role="alert"`／`aria-live`、破壞性捨棄使用瀏覽器原生確認），
-  但焦點順序、320 CSS 像素單欄呈現與完整走查尚未由人實際確認。
+- 5.5 與 7.5 的瀏覽器走查由產品負責人在 `pnpm dev` 上實際執行，未回報問題。
+  涵蓋開場預設與更改、比分把關與強制記錄、賽制凍結、歷史顯示與修改、
+  以及手動破壞 localStorage 後的阻斷式復原流程。
