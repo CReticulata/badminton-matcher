@@ -1,0 +1,50 @@
+schema: spec-driven
+
+context: |
+  Product: badminton-matcher, a frontend-only browser PWA for fair badminton rotation,
+  rating-balanced teams, score recording, and local history. Real users are the owner
+  and their badminton group.
+  Stack: Vue 3, TypeScript, Vite, Tailwind CSS v4, Vitest, pnpm.
+  Persistence: browser localStorage (key `badminton-matcher:v1`) and CSV only.
+  No backend, no database, no Python runtime, no IndexedDB.
+  Authority: Glicko-2 is the sole production rating and matchmaking authority. It is
+  self-implemented in `src/lib/glicko2.ts` (tau 0.5) and third-party Glicko packages are
+  forbidden. Matchmaking priority is participation/rotation/rest fairness first, rating
+  balance second; that order does not change without an explicit decision record.
+  Replay: each session stores a fixed Glicko opening snapshot that bounds recalculation.
+  History edits replay from that boundary and must not cross into the next session.
+  Sources: `spec.md` is the product baseline, `design.md` holds current design decisions,
+  `CONTEXT.md` is the domain glossary, `docs/adr/` holds accepted architecture decisions,
+  `docs/features/` holds feature-level acceptance contracts, and `docs/research/` holds
+  offline, non-authoritative evidence.
+
+rules:
+  proposal:
+    - State the product problem, intended outcome, scope, and explicit non-goals.
+    - Identify effects on rating authority, persistence, replay boundaries, migration, and UI.
+    - Separate what this change proves from what a later change would need to authorize.
+  specs:
+    - Use normative MUST or SHALL requirements with observable scenarios.
+    - Include failure, missing, malformed, legacy, and recovery behavior where applicable.
+    - Preserve Glicko authority and the fairness-first matchmaking order.
+    - Never infer missing scoring formats, fabricate historical state, or silently move replay boundaries.
+    - Treat optional timestamps as present only when not `undefined`; `0` is a legal timestamp.
+  design:
+    - Explain data lineage, deterministic replay, and migration implications.
+    - Record alternatives considered and why the selected design is safer or simpler.
+    - Keep offline research code out of `src/` and out of the production build.
+  tasks:
+    - Order behavior work as RED test, minimal GREEN implementation, focused closure, then broader verification.
+    - Name the files or bounded surfaces each task may modify.
+    - Include exact validation commands and explicit rating non-interference checks when relevant.
+
+operations:
+  apply:
+    guidance:
+      - Inspect the worktree before editing and preserve unrelated changes.
+      - Implement only tasks in the active OpenSpec change and keep task status current.
+      - Run `pnpm test` and `pnpm build` before claiming a task complete; report real results.
+  archive:
+    guidance:
+      - Require successful OpenSpec validation and real verification receipts before archive.
+      - Summarize accepted spec changes, remaining limitations, and authority boundaries.
