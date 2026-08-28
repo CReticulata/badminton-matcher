@@ -71,38 +71,6 @@ The number of enumerated options MUST be bounded by a fixed limit. When a tie gr
 - **WHEN** fewer eligible candidates are present than the match needs
 - **THEN** no proposal is produced, exactly as before
 
-### Requirement: Expected margin is derived only from a structured format
-
-`expectedMargin` MUST accept a rating gap and a structured scoring format and return the expected absolute point margin under the frozen endpoint model with the calibrated coefficient. It MUST NOT be defined for an unknown format, and the product MUST NOT substitute a default format to obtain a value.
-
-#### Scenario: Structured format is available
-- **WHEN** a session's format is catalog or custom
-- **THEN** an expected margin is available for a given rating gap and increases as the gap increases
-
-#### Scenario: Format is unknown
-- **WHEN** a session's format is unknown, whether explicit or legacy
-- **THEN** no expected margin is produced, no readout is shown, and selection behaviour is unaffected
-
-#### Scenario: Coefficient provenance is recorded
-- **WHEN** the calibrated coefficient is defined in code
-- **THEN** its value, confidence interval, sample size, and source document are recorded alongside it
-
-### Requirement: The readout must not imply unwarranted precision
-
-Any user-facing balance figure MUST be presented as approximate. The product MUST NOT present a specific predicted final score, a win probability, or a figure with more precision than the calibration supports, and MUST NOT describe it as a prediction of the match result.
-
-#### Scenario: A proposed match is previewed
-- **WHEN** a proposal is shown for a session with a structured format
-- **THEN** an explicitly approximate indication of how lopsided the match is likely to be is shown next to the manual-swap controls
-
-#### Scenario: Manual swap changes the teams
-- **WHEN** the user swaps two players in the preview
-- **THEN** the indication updates for the new teams before the match starts
-
-#### Scenario: Rating uncertainty is high
-- **WHEN** one or more selected players have wide rating deviation, such as a newly added player
-- **THEN** the indication does not present the figure as more reliable than for established players
-
 ### Requirement: Rating authority and recorded history are untouched
 
 This capability MUST NOT read, write, or influence rating state, match history, replay boundaries, scoring-format snapshots, or persistence. It MUST NOT alter what is stored for a completed match.
