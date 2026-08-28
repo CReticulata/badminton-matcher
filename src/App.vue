@@ -8,6 +8,8 @@ import MatchDisplay from "./components/MatchDisplay.vue";
 import ScoreInput from "./components/ScoreInput.vue";
 import RecoveryView from "./components/RecoveryView.vue";
 
+const version = __APP_VERSION__;
+
 const tabs = [
   { key: "session", label: "場次" },
   { key: "players", label: "參賽者" },
@@ -22,6 +24,12 @@ const tabs = [
     >
       <div class="mx-auto flex max-w-2xl items-center px-4 py-2">
         <h1 class="text-base font-bold text-teal-800">羽球對戰分配機</h1>
+        <span
+          class="ml-auto font-mono text-[11px] tabular-nums text-slate-400"
+          aria-label="版本號"
+        >
+          {{ version }}
+        </span>
       </div>
     </header>
 
