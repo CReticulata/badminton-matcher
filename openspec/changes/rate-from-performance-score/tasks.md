@@ -31,7 +31,7 @@
 - [x] 5.3 Run `git diff --check`.
 - [x] 5.4 Run `openspec validate rate-from-performance-score --strict --no-interactive`.
 - [x] 5.5 Replay the real exported CSV and confirm every rating is unchanged, since all existing matches are `legacy-missing`.
-- [ ] 5.6 Browser walkthrough: record a match under a known format, confirm the rating delta differs between a narrow and a wide win with the same winner.
+- [x] 5.6 Browser walkthrough: record a match under a known format, confirm the rating delta differs between a narrow and a wide win with the same winner.
 
 ## 執行紀錄
 
@@ -51,6 +51,12 @@ None」是錯的。已補上 `## MODIFIED Requirements`，把該要求改寫為�
 RD、volatility 與初始 rating 不變，但凍結的賽制快照可決定餵入的觀測得分」，並保留仍然
 成立的較窄版本：兩場未知賽制、相同勝負者，不論分差結果相同。
 
-### 尚未完成
+### 瀏覽器走查（5.6）
 
-- 5.6 需要真實瀏覽器操作，未執行。
+由產品負責人在 `pnpm dev` 上實際執行，全數符合預期：
+
+- **核心驗證**：15 分制下，同樣的四人與勝負，15:0 的贏家 rating 變動明顯大於 15:13。
+- **對照組**：未知賽制下，險勝與大勝的變動完全相同——確認退回二元路徑，既有紀錄不受影響。
+- 預覽頁已無平衡說明，手動換人正常；歷史頁的賽制標籤正確。
+- 15 分制下輸入 15:14 被擋下並出現強制記錄按鈕；強制後該場標示「不計入強度」，
+  且所有人 rating 不變。
