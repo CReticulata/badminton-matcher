@@ -12,7 +12,6 @@ import {
 } from '../store'
 import { textColorOn } from '../lib/color'
 import { cloneScoringFormat, displayScoringFormat } from '../lib/scoring-format'
-import { balanceBand, describeBalance, expectedMargin } from '../lib/expected-margin'
 import ScoringFormatPicker from './ScoringFormatPicker.vue'
 
 const selected = ref<string | null>(null)
@@ -45,37 +44,6 @@ function tap(id: string) {
 const pending = computed(() => ui.pending)
 const player = (id: string) => playerById.value.get(id)
 
-const meanRating = (ids: readonly string[]) =>
-  ids.reduce((total, id) => total + (player(id)?.rating ?? 1500), 0) / Math.max(ids.length, 1)
-
-/** 兩隊「平均」rating 之差；換人後即時更新 */
-const meanGap = computed(() => {
-  const p = pending.value
-  if (!p) return 0
-  return meanRating(p.teamA) - meanRating(p.teamB)
-})
-
-/**
- * 粗略的傾斜程度說明。賽制未知時為 null（不以預設賽制代替），
- * 且刻意不給預測比分或勝率——校準係數的 CI 寬達 4.4 倍。
- */
-const balanceHint = computed(() => {
-  const p = pending.value
-  return p ? describeBalance(meanGap.value, p.scoringFormat) : null
-})
-
-const balanceTone = computed(() => {
-  const p = pending.value
-  if (!p) return ''
-  const margin = expectedMargin(meanGap.value, p.scoringFormat)
-  if (margin === null) return ''
-  return {
-    even: 'border-teal-300 bg-teal-50 text-teal-900',
-    slight: 'border-slate-300 bg-slate-50 text-slate-700',
-    noticeable: 'border-amber-300 bg-amber-50 text-amber-900',
-    lopsided: 'border-amber-400 bg-amber-100 text-amber-900',
-  }[balanceBand(margin)]
-})
 </script>
 
 <template>
@@ -110,17 +78,6 @@ const balanceTone = computed(() => {
           使用活動預設
         </button>
       </div>
-
-      <!-- 粗略平衡說明：供手動換人參考，非預測結果 -->
-      <p
-        v-if="balanceHint"
-        class="mb-3 rounded-xl border px-3 py-2 text-center text-sm"
-        :class="balanceTone"
-        aria-live="polite"
-      >
-        {{ balanceHint }}
-        <span class="ml-1 text-xs opacity-70">（估計值，僅供換人參考）</span>
-      </p>
 
       <div class="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div class="space-y-2">
