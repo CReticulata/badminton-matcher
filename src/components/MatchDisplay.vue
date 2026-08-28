@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { playerById, ui } from '../store'
+import { cancelLiveMatch, playerById, ui } from '../store'
 import { displayScoringFormat } from '../lib/scoring-format'
 import { textColorOn } from '../lib/color'
 
@@ -9,6 +9,11 @@ const player = (id: string) => playerById.value.get(id)
 const colorOf = (id: string) => player(id)?.color ?? '#555555'
 const nameOf = (id: string) => player(id)?.name ?? '?'
 const restNames = computed(() => (live.value?.resters ?? []).map(nameOf).join('、'))
+
+function confirmCancel() {
+  if (!window.confirm('確定取消這場比賽？本場不會留下任何紀錄。')) return
+  cancelLiveMatch()
+}
 </script>
 
 <template>
@@ -75,15 +80,25 @@ const restNames = computed(() => (live.value?.resters ?? []).map(nameOf).join('�
       </div>
     </div>
 
-    <!-- 底部列：休息名單＋結束按鈕 -->
-    <div class="flex items-center gap-3 px-3 py-2">
-      <p class="shrink-0 text-sm text-white/40">{{ displayScoringFormat(live.scoringFormat) }}</p>
-      <p v-if="restNames" class="min-w-0 truncate text-sm text-white/50">休息：{{ restNames }}</p>
+    <!-- 底部列：休息名單＋結束按鈕。窄畫面優先保留兩個按鈕，文字先縮 -->
+    <div class="flex items-center gap-2 px-3 py-2 landscape:gap-3">
+      <p class="min-w-0 shrink truncate text-sm text-white/40">
+        {{ displayScoringFormat(live.scoringFormat) }}
+      </p>
+      <p v-if="restNames" class="min-w-0 shrink truncate text-sm text-white/50">
+        休息：{{ restNames }}
+      </p>
       <button
-        class="ml-auto shrink-0 rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"
+        class="ml-auto shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90"
+        @click="confirmCancel"
+      >
+        取消<span class="hidden landscape:inline">此對戰</span>
+      </button>
+      <button
+        class="shrink-0 whitespace-nowrap rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"
         @click="ui.scoring = true"
       >
-        結束比賽・輸入比分
+        結束比賽<span class="hidden landscape:inline">・輸入比分</span>
       </button>
     </div>
   </div>

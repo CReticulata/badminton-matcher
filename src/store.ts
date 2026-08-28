@@ -439,6 +439,17 @@ export function cancelPending() {
   ui.pending = null
 }
 
+/**
+ * 取消進行中的比賽：整場作廢，不寫入任何紀錄。
+ * 開打本身不產生持久化狀態（上場／休息次數皆由 matches 推導），
+ * 因此丟掉 live context 即可，rating 與統計不受影響。
+ */
+export function cancelLiveMatch() {
+  if (isBlocked()) return
+  ui.live = null
+  ui.scoring = false
+}
+
 /** 強制記錄選項：略過賽制檢查並將該場排除於強度計算之外 */
 export interface RecordOptions {
   /** 比分不符賽制時仍要記錄；該場不計入強度，但仍計入上場／休息次數 */

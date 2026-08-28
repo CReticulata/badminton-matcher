@@ -8,6 +8,7 @@ import {
   activePlayers,
   archivedPlayers,
   archivePlayer,
+  cancelLiveMatch,
   clearAllHistory,
   clearSession,
   data,
@@ -21,6 +22,7 @@ import {
   proposeRound,
   ratingReportsBySession,
   restorePlayer,
+  startMatch,
   startSession,
   submitScore,
   ui,
@@ -545,5 +547,35 @@ describe('clearSession / clearAllHistory', () => {
     expect(err).toBeNull()
     expect(data.matches.find((m) => m.id === 'b1')!.scoreA).toBe(5)
     data.players.forEach((p, i) => expect(p.rating).toBeCloseTo(ratings[i]!, 8))
+  })
+})
+
+describe('取消進行中的比賽', () => {
+  it('作廢 live context，不留下紀錄也不動 rating', () => {
+    const ids = ['小明', '阿華', '小美', '阿強'].map((n) => addPlayer(n, 1500).id)
+    startSession(ids, TEST_FORMAT)
+    expect(proposeRound()).toBe(true)
+    startMatch()
+    expect(ui.live).not.toBeNull()
+
+    const before = data.players.map((p) => ({ ...p }))
+    cancelLiveMatch()
+
+    expect(ui.live).toBeNull()
+    expect(ui.scoring).toBe(false)
+    expect(data.matches).toHaveLength(0)
+    expect(data.players.map((p) => ({ ...p }))).toEqual(before)
+  })
+
+  it('取消後可重新產生分組，該場不計入上場次數', () => {
+    const ids = ['小明', '阿華', '小美', '阿強', '小陳'].map((n) => addPlayer(n, 1500).id)
+    startSession(ids, TEST_FORMAT)
+    proposeRound()
+    startMatch()
+    cancelLiveMatch()
+
+    expect(proposeRound()).toBe(true)
+    expect(ui.pending).not.toBeNull()
+    expect(data.matches).toHaveLength(0)
   })
 })
