@@ -93,19 +93,28 @@ describe('比分寫入把關', () => {
   })
 })
 
-describe('賽制不影響 rating 權威', () => {
-  it('相同參賽者與勝負、不同合法賽制，Glicko 結果完全相同', () => {
-    const run = (format: ScoringFormatSnapshot, scoreA: number, scoreB: number) => {
-      resetStore()
-      const a = addPlayer('A', 1500)
-      const b = addPlayer('B', 1500)
-      startSession([a.id, b.id], format)
-      liveMatch(format, [a.id, b.id])
-      expect(submitScore(scoreA, scoreB)).toBeNull()
-      return data.players.map((p) => ({ rating: p.rating, rd: p.rd, vol: p.vol }))
-    }
-    expect(run(FMT15, 15, 9)).toEqual(run(FMT21, 21, 9))
-    expect(run(FMT15, 15, 9)).toEqual(run(UNKNOWN, 3, 1))
+describe('賽制與 rating 權威', () => {
+  /** 從相同起點打一場，回傳所有人的完整 Glicko 狀態 */
+  const run = (format: ScoringFormatSnapshot, scoreA: number, scoreB: number) => {
+    resetStore()
+    const a = addPlayer('A', 1500)
+    const b = addPlayer('B', 1500)
+    startSession([a.id, b.id], format)
+    liveMatch(format, [a.id, b.id])
+    expect(submitScore(scoreA, scoreB)).toBeNull()
+    return data.players.map((p) => ({ rating: p.rating, rd: p.rd, vol: p.vol }))
+  }
+
+  it('未知賽制下，相同勝負不論分差結果完全相同（維持二元路徑）', () => {
+    expect(run(UNKNOWN, 3, 1)).toEqual(run(UNKNOWN, 30, 1))
+  })
+
+  it('已知賽制下，分差會影響結果（觀測得分由賽制與比分推導）', () => {
+    const narrow = run(FMT15, 15, 13)
+    const wide = run(FMT15, 15, 0)
+    expect(narrow).not.toEqual(wide)
+    // 大勝者的 rating 應高於險勝者
+    expect(wide[0]!.rating).toBeGreaterThan(narrow[0]!.rating)
   })
 })
 

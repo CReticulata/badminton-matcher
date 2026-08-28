@@ -56,6 +56,7 @@ describe('applyMatch（雙打虛擬對手）', () => {
   it('每人以對方兩人平均 rating 為虛擬對手更新', () => {
     const states = mkStates()
     const updated = applyMatch(states, {
+      scoringFormat: TEST_FORMAT,
       teamA: ['a', 'b'],
       teamB: ['c', 'd'],
       scoreA: 21,
@@ -78,13 +79,13 @@ describe('applyMatch（雙打虛擬對手）', () => {
 
   it('平手 throw', () => {
     expect(() =>
-      applyMatch(mkStates(), { teamA: ['a', 'b'], teamB: ['c', 'd'], scoreA: 10, scoreB: 10 }),
+      applyMatch(mkStates(), { teamA: ['a', 'b'], teamB: ['c', 'd'], scoreA: 10, scoreB: 10, scoringFormat: TEST_FORMAT }),
     ).toThrow()
   })
 
   it('單打為標準一對一更新', () => {
     const states = mkStates()
-    const updated = applyMatch(states, { teamA: ['a'], teamB: ['c'], scoreA: 21, scoreB: 19 })
+    const updated = applyMatch(states, { teamA: ['a'], teamB: ['c'], scoreA: 21, scoreB: 19, scoringFormat: TEST_FORMAT })
     const expected = updateRating(
       { rating: 1400, rd: 100, vol: 0.06 },
       [{ rating: 1500, rd: 100, score: 1 }],
