@@ -134,7 +134,7 @@ async function onImportFile(e: Event) {
           :key="lv.level"
           :value="lv.rating"
         >
-          {{ lv.level }} 級｜{{ lv.tier }}（{{ lv.rating }}）
+          {{ lv.level }} 級｜{{ lv.tier }}
         </option>
       </select>
       <button
