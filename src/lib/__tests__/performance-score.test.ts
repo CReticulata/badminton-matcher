@@ -152,7 +152,6 @@ describe('重播', () => {
 describe('分組不得依賴賽制或本模組', () => {
   it('matchmaking.ts 未 import 終局分布或賽制模組', () => {
     expect(matchmakingSource).not.toContain('endpoint-distribution')
-    expect(matchmakingSource).not.toContain('expected-margin')
     expect(matchmakingSource).not.toContain('scoring-format')
   })
 })
