@@ -15,7 +15,8 @@ export const DEFAULT_VOL = 0.06
 /** 手動覆寫 rating 後，RD 重設為高值（視為重新認識此人） */
 export const OVERRIDE_RD = 350
 
-const SCALE = 173.7178
+/** Glicko-2 內部尺度：rating 與 mu 的換算常數（400/ln 10） */
+export const SCALE = 173.7178
 const EPS = 1e-6
 
 export interface GlickoState {
