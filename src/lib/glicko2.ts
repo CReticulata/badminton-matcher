@@ -5,6 +5,8 @@
  * - tau = 0.5。
  */
 import type { Match, Player, RatingBaseline, RatingOverride } from '../types'
+import { endpointStats } from './endpoint-distribution'
+import { isStructured } from './scoring-format'
 
 export const TAU = 0.5
 export const DEFAULT_RATING = 1500
@@ -133,13 +135,36 @@ export function countsForRating(match: Pick<Match, 'excludedFromRating'>): boole
 }
 
 /**
+ * A 隊在這場比賽的「觀測得分」，即餵給 Glicko 的 s。
+ *
+ * 賽制已知時不用二元勝負，而是由觀測比分反推每球勝率 q̂ = a/(a+b)，
+ * 再透過該賽制的終局分布換算成勝率。s 與 Glicko 的 E 因而是同一個量的兩種估計：
+ * E 是賽前預期的勝率，s 是由逐球表現反推的勝率。15:13 給約 0.66 而非 1.0。
+ *
+ * 賽制未知時退回 1／0——換算需要 target／winBy／cap，而缺賽制的紀錄不得假設規則。
+ * 既有歷史全為 legacy-missing，因此本變更不會追溯改寫任何已存在的評分。
+ *
+ * 純函式：只讀該場的比分與凍結賽制，不讀校準係數、時間或亂數。
+ */
+export function performanceScore(
+  match: Pick<Match, 'scoreA' | 'scoreB' | 'scoringFormat'>,
+): number {
+  const { scoreA, scoreB, scoringFormat } = match
+  if (scoreA === scoreB) throw new Error('score cannot be a tie')
+  if (!isStructured(scoringFormat)) return scoreA > scoreB ? 1 : 0
+  const total = scoreA + scoreB
+  if (total <= 0) return scoreA > scoreB ? 1 : 0
+  return endpointStats(scoreA / total, scoringFormat.rules).winProbability
+}
+
+/**
  * 依一場比賽計算所有上場者的新 rating（純函式）。
  * 傳回 Map<playerId, GlickoState>，未上場者不在其中。
  * 所有更新皆以賽前狀態為基準（同一 period 內互不影響）。
  */
 export function applyMatch(
   states: ReadonlyMap<string, GlickoState>,
-  match: Pick<Match, 'teamA' | 'teamB' | 'scoreA' | 'scoreB'>,
+  match: Pick<Match, 'teamA' | 'teamB' | 'scoreA' | 'scoreB' | 'scoringFormat'>,
 ): Map<string, GlickoState> {
   const updated = new Map<string, GlickoState>()
   const get = (id: string): GlickoState => {
@@ -147,11 +172,9 @@ export function applyMatch(
     if (!s) throw new Error(`unknown player id: ${id}`)
     return s
   }
-  const scoreOf = (myTeamIsA: boolean): number => {
-    if (match.scoreA === match.scoreB) throw new Error('score cannot be a tie')
-    const aWins = match.scoreA > match.scoreB
-    return myTeamIsA === aWins ? 1 : 0
-  }
+  // 兩隊的觀測得分互補，總和為 1
+  const observedA = performanceScore(match)
+  const scoreOf = (myTeamIsA: boolean): number => (myTeamIsA ? observedA : 1 - observedA)
 
   const virtualOpponent = (oppIds: string[]): { rating: number; rd: number } => {
     const opps = oppIds.map(get)

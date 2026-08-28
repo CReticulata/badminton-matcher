@@ -8,11 +8,8 @@
  * 模型：每球獨立，強隊以機率 q = sigmoid(BETA * 平均 rating 差 / 100) 得分，
  * 終局比分分布由賽制規則的動態規劃求得。
  */
-import {
-  isStructured,
-  type ScoringFormatSnapshot,
-  type StructuredScoringFormat,
-} from './scoring-format'
+import { endpointStats } from './endpoint-distribution'
+import { isStructured, type ScoringFormatSnapshot } from './scoring-format'
 
 /**
  * 每 100 rating 點對應的每球勝率 logit。
@@ -30,47 +27,6 @@ function sigmoid(z: number): number {
   return z >= 0 ? 1 / (1 + Math.exp(-z)) : Math.exp(z) / (1 + Math.exp(z))
 }
 
-/** 終局比分的三個互斥分支，與 scoring-format 的 isLegalEndpoint 一致 */
-function isTerminal(a: number, b: number, target: number, winBy: number, cap: number): boolean {
-  if (a === b) return false
-  const winner = Math.max(a, b)
-  const loser = Math.min(a, b)
-  if (winner === target) return loser <= target - winBy
-  if (winner > target && winner < cap) return winner - loser === winBy
-  if (cap > target && winner === cap) return loser >= cap - winBy && loser < cap
-  return false
-}
-
-/** 逐球 iid 假設下的預期絕對分差 */
-function meanMargin(q: number, format: StructuredScoringFormat): number {
-  const { target, winBy, cap } = format.rules
-  // states[a * (cap + 1) + b] = 到達該比分且尚未結束的機率
-  const width = cap + 1
-  const states = new Float64Array(width * width)
-  states[0] = 1
-  let total = 0
-  let expected = 0
-  for (let sum = 0; sum <= 2 * cap; sum++) {
-    for (let a = Math.max(0, sum - cap); a <= Math.min(cap, sum); a++) {
-      const b = sum - a
-      const mass = states[a * width + b]!
-      if (mass === 0) continue
-      if (isTerminal(a, b, target, winBy, cap)) {
-        total += mass
-        expected += mass * Math.abs(a - b)
-        continue
-      }
-      if (a + 1 <= cap) states[(a + 1) * width + b]! += mass * q
-      if (b + 1 <= cap) states[a * width + b + 1]! += mass * (1 - q)
-    }
-  }
-  // 規則保證每條路徑都會終止；殘留質量代表規則有誤
-  if (!(total > 0.999999)) throw new Error('賽制規則無法保證比賽結束')
-  return expected / total
-}
-
-const cache = new Map<string, number>()
-
 /**
  * 平均 rating 差對應的預期絕對分差。
  *
@@ -84,14 +40,7 @@ export function expectedMargin(
   if (!isStructured(format)) return null
   if (!Number.isFinite(meanRatingGap)) return null
   const q = sigmoid((BETA * Math.abs(meanRatingGap)) / 100)
-  const { target, winBy, cap } = format.rules
-  const key = `${target}/${winBy}/${cap}/${q.toFixed(6)}`
-  let value = cache.get(key)
-  if (value === undefined) {
-    value = meanMargin(q, format)
-    cache.set(key, value)
-  }
-  return value
+  return endpointStats(q, format.rules).meanMargin
 }
 
 export type BalanceBand = 'even' | 'slight' | 'noticeable' | 'lopsided'

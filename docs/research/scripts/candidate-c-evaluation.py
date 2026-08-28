@@ -130,9 +130,11 @@ TRUE_SKILLS = [1741, 1405, 1395, 1304, 1273, 1257, 1203, 1170, 1142, 1076]
 
 def play(rng, mean_a, mean_b, perf_sigma):
     """逐球模擬一場。perf_sigma 為單場狀態起伏，是模型錯置的來源。"""
-    ea = mean_a + rng.gauss(0, perf_sigma)
-    eb = mean_b + rng.gauss(0, perf_sigma)
-    q = sig(BETA * (ea - eb) / 100.0)
+    # perf_sigma 為 0 時不抽亂數，使各實驗的比賽序列與該參數無關
+    if perf_sigma:
+        mean_a += rng.gauss(0, perf_sigma)
+        mean_b += rng.gauss(0, perf_sigma)
+    q = sig(BETA * (mean_a - mean_b) / 100.0)
     a = b = 0
     while not legal(a, b):
         if rng.random() < q:
@@ -364,6 +366,63 @@ def experiment_conditional(reps=40, n_matches=400, rounds=200):
     print("\n單位：分（預期絕對分差；負值＝兩隊更接近）")
 
 
+def experiment_recovery(reps=60):
+    """實驗 7：每位球員實力估計的準確度與樣本效率。
+
+    候選 C 會壓縮評分，直接比 |學到 − 真值| 對它不公平。先以最小平方
+    擬合 true = a + b * learned 吸收尺度差異，再看殘差——那才是
+    「相對位置抓得準不準」，也正是使用者比較彼此分數時在意的東西。
+    """
+    checkpoints = (20, 40, 80, 160, 320, 640)
+
+    def residuals(learned):
+        mean_learned = statistics.mean(learned)
+        mean_true = statistics.mean(TRUE_SKILLS)
+        slope = (math.fsum((x - mean_learned) * (t - mean_true)
+                           for x, t in zip(learned, TRUE_SKILLS))
+                 / math.fsum((x - mean_learned) ** 2 for x in learned))
+        return [t - (mean_true + slope * (x - mean_learned))
+                for x, t in zip(learned, TRUE_SKILLS)]
+
+    rmse = {(tag, c): [] for tag in ("bin", "perf") for c in checkpoints}
+    per_player = {(tag, c): [[] for _ in TRUE_SKILLS]
+                  for tag in ("bin", "perf") for c in checkpoints}
+    for rep in range(reps):
+        seq = simulate_sequence(8000 + rep, max(checkpoints), 0)
+        for tag, fn in (("bin", s_binary), ("perf", s_performance)):
+            states = {i: (1500.0, DEF_RD, DEF_V) for i in range(len(TRUE_SKILLS))}
+            for idx, (team_a, team_b, (score_a, score_b)) in enumerate(seq):
+                for i, s in apply_match(states, team_a, team_b, score_a, score_b, fn).items():
+                    states[i] = s
+                if idx + 1 in checkpoints:
+                    res = residuals([states[i][0] for i in range(len(TRUE_SKILLS))])
+                    rmse[(tag, idx + 1)].append(math.sqrt(statistics.mean(x * x for x in res)))
+                    for i, x in enumerate(res):
+                        per_player[(tag, idx + 1)][i].append(abs(x))
+
+    print("\n=== 實驗 7：每位球員實力估計的殘差 RMSE（線性擬合後）===\n")
+    binary = [statistics.mean(rmse[("bin", c)]) for c in checkpoints]
+    perf = [statistics.mean(rmse[("perf", c)]) for c in checkpoints]
+    print(f"{'場數':>6}{'現行':>10}{'候選C':>10}{'改善':>9}{'相當於場數倍率':>16}")
+    for i, c in enumerate(checkpoints):
+        need = None
+        for j in range(len(checkpoints) - 1):
+            if binary[j] >= perf[i] >= binary[j + 1]:
+                frac = (binary[j] - perf[i]) / (binary[j] - binary[j + 1])
+                need = checkpoints[j] + frac * (checkpoints[j + 1] - checkpoints[j])
+                break
+        ratio = f"{need / c:.2f}×" if need else (f"＞{max(checkpoints)} 場"
+                                                if perf[i] < binary[-1] else "—")
+        print(f"{c:>6}{binary[i]:>10.1f}{perf[i]:>10.1f}{binary[i] - perf[i]:>+9.1f}{ratio:>16}")
+
+    print(f"\n分人看（訓練 160 場的平均絕對殘差）：")
+    print(f"{'真實實力':>9}{'現行':>9}{'候選C':>9}{'改善':>8}")
+    for i in range(len(TRUE_SKILLS)):
+        b = statistics.mean(per_player[("bin", 160)][i])
+        p = statistics.mean(per_player[("perf", 160)][i])
+        print(f"{TRUE_SKILLS[i]:>9}{b:>9.1f}{p:>9.1f}{b - p:>+8.1f}")
+
+
 def experiment_calibration(reps=25):
     """實驗 5：訓練後凍結評分，於全新比賽評估；掃描尺度校正倍率。"""
     print("\n=== 實驗 5：預測校準（訓練 400 場後凍結，於 300 場全新比賽評估）===\n")
@@ -407,6 +466,7 @@ def main(argv):
         print("（未提供 CSV，略過實驗 1）")
     experiment_simulation()
     experiment_conditional()
+    experiment_recovery()
     experiment_calibration()
     return 0
 
