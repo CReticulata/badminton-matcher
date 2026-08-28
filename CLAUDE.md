@@ -16,3 +16,4 @@
 
 ## 踩雷紀錄
 - 【2026-08-05】症狀：比分輸入按儲存無反應，console 報 `scoreA.value.trim is not a function`。根因：`<input type="number">` 的 v-model 值可能是 number 而非 string。下次：number input 的 v-model 一律先 `String(v)` 再處理，或用 `v-model.number`＋型別 `string | number`。
+- 【2026-08-28】症狀：header 版本號停在舊 commit hash，改 code 也不更新。根因：vite `define` 只在載入設定檔時求值一次，dev server 期間 commit 不會重算（正式 build 無此問題）。下次：dev 版本號帶 `dev` 後綴以資識別；要看最新 hash 就重啟 dev server 或存一次 `vite.config.ts`。
