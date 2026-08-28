@@ -189,6 +189,18 @@ def matchmaking_quality(ratings, rng, rounds=200):
     return statistics.mean(gaps)
 
 
+def expected_margin(team_sum_gap):
+    """隊伍 rating 總和差 → 預期【絕對】分差 E|a−b|。
+
+    平衡在意的是「這場會不會一面倒」，因此用絕對分差而非帶符號分差。
+    兩者差很多：實力相同時絕對分差已是 4.48 分（總得有人贏），
+    每 100 平均 rating 點才增加約 0.58 分，即 1 分 ≈ 174 平均 rating 點。
+    帶符號分差在 0 起算且成長快得多——誤用它會把效果誇大約 5.5 倍。
+    """
+    rows = endpoints(sig(BETA * (team_sum_gap / 2) / 100.0))
+    return math.fsum(m * abs(a - b) for a, b, m in rows)
+
+
 def paired_t(values):
     if len(values) < 2:
         return 0.0
@@ -280,7 +292,7 @@ def experiment_simulation(reps=30):
         print(f"{n:>6}{b:>12.4f}{p:>12.4f}{p - b:>+9.4f}")
 
     print("\n=== 實驗 3：產品指標——依學到的評分分隊後的【真實】隊伍差 ===\n")
-    print(f"{'訓練場數':>8}{'現行':>10}{'候選C':>10}{'差':>9}{'配對 t':>9}{'≈ 分差':>9}")
+    print(f"{'訓練場數':>8}{'現行':>10}{'候選C':>10}{'差':>9}{'配對 t':>9}{'≈ 分差':>10}")
     for n in checkpoints:
         gaps = {"bin": [], "perf": []}
         for rep in range(reps):
@@ -288,10 +300,10 @@ def experiment_simulation(reps=30):
             for tag, fn in (("bin", s_binary), ("perf", s_performance)):
                 gaps[tag].append(matchmaking_quality(train(seq, fn), random.Random(7777 + rep)))
         diffs = [p - b for b, p in zip(gaps["bin"], gaps["perf"])]
-        # 隊伍總和差 / 2 = 平均差；每 31 個平均差點 ≈ 1 分預期分差
-        margin = statistics.mean(diffs) / 2 / 31
+        margin = expected_margin(statistics.mean(gaps["perf"])) - expected_margin(
+            statistics.mean(gaps["bin"]))
         print(f"{n:>8}{statistics.mean(gaps['bin']):>10.1f}{statistics.mean(gaps['perf']):>10.1f}"
-              f"{statistics.mean(diffs):>+9.1f}{paired_t(diffs):>9.2f}{margin:>+9.2f}")
+              f"{statistics.mean(diffs):>+9.1f}{paired_t(diffs):>9.2f}{margin:>+9.3f}")
 
     print("\n=== 實驗 4：模型錯置——加入單場狀態起伏 ===")
     print("（實測真實資料的過度離散比為 1.15）\n")
@@ -309,6 +321,47 @@ def experiment_simulation(reps=30):
         print(f"{sigma:>11}{statistics.mean(corr['bin']):>12.4f}{statistics.mean(corr['perf']):>12.4f}"
               f"{statistics.mean(corr['perf']) - statistics.mean(corr['bin']):>+9.4f}"
               f"{statistics.mean(gaps['bin']):>10.1f}{statistics.mean(gaps['perf']):>11.1f}")
+
+
+def experiment_conditional(reps=40, n_matches=400, rounds=200):
+    """效果集中度：兩臂選出不同分隊的比例，以及那些回合的實際好壞。
+
+    「更好」的定義：以【真實實力】衡量，該分隊的兩隊實力總和差較小，
+    亦即比賽更接近。只有模擬能這樣比——真實資料沒有真值，
+    用任一臂自己的評分當尺都會構成循環論證。
+    """
+    print("\n=== 實驗 6：效果是集中的還是均勻的 ===\n")
+    print(f"{'訓練場數':>8}{'選擇不同':>10}{'全部平均':>11}{'僅不同時':>11}{'變好時':>10}{'變壞時':>10}")
+    for n in (50, n_matches):
+        every, cond, better, worse = [], [], [], []
+        for rep in range(reps):
+            seq = simulate_sequence(6000 + rep, n, 0)
+            ratings = {tag: train(seq, fn) for tag, fn in (("bin", s_binary), ("perf", s_performance))}
+            rng = random.Random(31 + rep)
+            for _ in range(rounds):
+                four = rng.sample(range(len(TRUE_SKILLS)), 4)
+                chosen = {}
+                for tag in ("bin", "perf"):
+                    best = None
+                    for split in (((0, 1), (2, 3)), ((0, 2), (1, 3)), ((0, 3), (1, 2))):
+                        team_a = [four[i] for i in split[0]]
+                        team_b = [four[i] for i in split[1]]
+                        estimated = abs(sum(ratings[tag][i] for i in team_a)
+                                        - sum(ratings[tag][i] for i in team_b))
+                        if best is None or estimated < best[0]:
+                            best = (estimated, team_a, team_b)
+                    chosen[tag] = (best[1], best[2])
+                true_gap = {t: abs(sum(TRUE_SKILLS[i] for i in a) - sum(TRUE_SKILLS[i] for i in b))
+                            for t, (a, b) in chosen.items()}
+                delta = expected_margin(true_gap["perf"]) - expected_margin(true_gap["bin"])
+                every.append(delta)
+                if set(chosen["bin"][0]) not in (set(chosen["perf"][0]), set(chosen["perf"][1])):
+                    cond.append(delta)
+                    (better if delta < 0 else worse).append(delta)
+        print(f"{n:>8}{len(cond) / len(every):>9.1%}{statistics.mean(every):>+11.3f}"
+              f"{statistics.mean(cond):>+11.3f}{statistics.mean(better):>+10.3f}"
+              f"{statistics.mean(worse):>+10.3f}")
+    print("\n單位：分（預期絕對分差；負值＝兩隊更接近）")
 
 
 def experiment_calibration(reps=25):
@@ -353,6 +406,7 @@ def main(argv):
     else:
         print("（未提供 CSV，略過實驗 1）")
     experiment_simulation()
+    experiment_conditional()
     experiment_calibration()
     return 0
 
