@@ -32,6 +32,7 @@ import {
   loadPersisted,
 } from './lib/persistence'
 import { cloneScoringFormat, isLegalEndpoint, isStructured } from './lib/scoring-format'
+import { levelToRating } from './lib/level'
 
 const INITIAL_TIERS = [
   '新手階',
@@ -57,7 +58,7 @@ const INITIAL_TIERS = [
 export const INITIAL_LEVELS = INITIAL_TIERS.map((tier, index) => ({
   level: index + 1,
   tier,
-  rating: 800 + index * 100,
+  rating: Math.round(levelToRating(index + 1)),
 }))
 
 const storage = (): Storage | undefined =>
