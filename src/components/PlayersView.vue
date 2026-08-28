@@ -16,6 +16,7 @@ import {
   totalStats,
 } from "../store";
 import { textColorOn } from "../lib/color";
+import { formatStrength } from "../lib/level";
 
 const newName = ref("");
 const newRating = ref<number>(
@@ -195,7 +196,7 @@ async function onImportFile(e: Event) {
               :disabled="!!currentSession"
               @click="onOverride(p.id, p.rating)"
             >
-              {{ Math.round(p.rating) }}
+              {{ formatStrength(p.rating) }}
             </button>
           </div>
         </div>
@@ -230,7 +231,7 @@ async function onImportFile(e: Event) {
           class="flex items-center rounded-xl border border-slate-200 bg-slate-50 p-3"
         >
           <span class="font-medium text-slate-600">{{ p.name }}</span>
-          <span class="ml-2 text-xs tabular-nums text-slate-400">{{ Math.round(p.rating) }}</span>
+          <span class="ml-2 text-xs tabular-nums text-slate-400">{{ formatStrength(p.rating) }}</span>
           <button class="ml-auto text-sm font-medium text-teal-700 hover:underline" @click="restorePlayer(p.id)">
             還原
           </button>

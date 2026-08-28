@@ -19,6 +19,7 @@ import {
   displayScoringFormat,
   type ScoringFormatSnapshot,
 } from '../lib/scoring-format'
+import { formatStrength } from '../lib/level'
 import PlayerChip from './PlayerChip.vue'
 import ScoringFormatPicker from './ScoringFormatPicker.vue'
 
@@ -102,7 +103,7 @@ function onEnd() {
               @change="toggleCheck(p.id)"
             />
             <PlayerChip :name="p.name" :color="p.color" />
-            <span class="ml-auto text-sm tabular-nums text-slate-400">{{ Math.round(p.rating) }}</span>
+            <span class="ml-auto text-sm tabular-nums text-slate-400">{{ formatStrength(p.rating) }}</span>
           </label>
         </li>
       </ul>
