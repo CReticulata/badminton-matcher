@@ -17,9 +17,13 @@ function resolveCommit(): string {
 const buildDate = new Date().toISOString().slice(0, 10);
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [vue(), tailwindcss()],
   define: {
-    __APP_VERSION__: JSON.stringify(`${buildDate} ${resolveCommit()}`),
+    // define 只在載入設定檔時求值一次：dev server 期間的 commit 會停在啟動當下，
+    // 因此標上 dev 後綴，避免把過期的 hash 誤讀成實際建置版本
+    __APP_VERSION__: JSON.stringify(
+      command === "serve" ? `${buildDate} ${resolveCommit()} dev` : `${buildDate} ${resolveCommit()}`,
+    ),
   },
-});
+}));
