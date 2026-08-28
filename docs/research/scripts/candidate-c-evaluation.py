@@ -130,9 +130,11 @@ TRUE_SKILLS = [1741, 1405, 1395, 1304, 1273, 1257, 1203, 1170, 1142, 1076]
 
 def play(rng, mean_a, mean_b, perf_sigma):
     """逐球模擬一場。perf_sigma 為單場狀態起伏，是模型錯置的來源。"""
-    ea = mean_a + rng.gauss(0, perf_sigma)
-    eb = mean_b + rng.gauss(0, perf_sigma)
-    q = sig(BETA * (ea - eb) / 100.0)
+    # perf_sigma 為 0 時不抽亂數，使各實驗的比賽序列與該參數無關
+    if perf_sigma:
+        mean_a += rng.gauss(0, perf_sigma)
+        mean_b += rng.gauss(0, perf_sigma)
+    q = sig(BETA * (mean_a - mean_b) / 100.0)
     a = b = 0
     while not legal(a, b):
         if rng.random() < q:
