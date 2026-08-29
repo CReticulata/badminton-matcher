@@ -3,7 +3,7 @@
  * 檔內以 [players] / [overrides] / [baselines] / [sessions] / [matches] 區段分隔。
  * 陣列欄位以 "|" 連接。
  */
-import type { AppData, Match, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'
+import type { AppData, AttendanceEvent, Match, MatchContext, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'
 import { createUnknownSnapshot, decodeScoringFormat, encodeScoringFormat } from './scoring-format'
 
 /** 匯入上限：對應瀏覽器 localStorage 實際放得下的量級 */
@@ -72,14 +72,15 @@ const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
 const SESSION_HEADER = [
   'id', 'name', 'startedAt', 'endedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active',
   'participantIds', 'participantOrderReliable', 'addedDuringSessionIds', 'openingRatings',
-  'defaultScoringFormat',
+  'defaultScoringFormat', 'liveMatch',
 ]
 const MATCH_HEADER = [
   'id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters',
-  'scoringFormat', 'excludedFromRating',
+  'scoringFormat', 'excludedFromRating', 'fairnessPeriodIds',
 ]
 
-const KNOWN_SECTIONS = ['players', 'overrides', 'baselines', 'sessions', 'matches'] as const
+const ATTENDANCE_HEADER = ['id', 'sessionId', 'kind', 'playerId', 'at', 'sequence', 'liveMatchId', 'presentIds', 'volunteerRestIds']
+const KNOWN_SECTIONS = ['players', 'overrides', 'baselines', 'sessions', 'matches', 'attendance'] as const
 
 export function exportCsv(data: AppData): string {
   const lines: string[] = []
@@ -105,7 +106,7 @@ export function exportCsv(data: AppData): string {
         joinIds(s.leftIds), joinIds(s.volunteerRest), s.active,
         joinIds(s.participantIds ?? []), s.participantOrderReliable ?? '',
         joinIds(s.addedDuringSessionIds ?? []), s.openingRatings ? JSON.stringify(s.openingRatings) : '',
-        encodeScoringFormat(s.defaultScoringFormat),
+        encodeScoringFormat(s.defaultScoringFormat), s.liveMatch ? JSON.stringify(s.liveMatch) : '',
       ]
         .map(esc)
         .join(','),
@@ -118,10 +119,15 @@ export function exportCsv(data: AppData): string {
         m.id, m.sessionId, m.at, m.mode, joinIds(m.teamA), joinIds(m.teamB),
         m.scoreA, m.scoreB, joinIds(m.resters), encodeScoringFormat(m.scoringFormat),
         m.excludedFromRating === true ? 'true' : '',
+        m.fairnessPeriodIds ? JSON.stringify(m.fairnessPeriodIds) : '',
       ]
         .map(esc)
         .join(','),
     )
+  }
+  lines.push('[attendance]', ATTENDANCE_HEADER.join(','))
+  for (const event of data.sessions.flatMap((session) => session.attendanceEvents ?? []).sort((a, b) => a.sessionId.localeCompare(b.sessionId) || a.at - b.at || a.sequence - b.sequence)) {
+    lines.push([event.id, event.sessionId, event.kind, event.playerId ?? '', event.at, event.sequence, event.liveMatchId ?? '', joinIds(event.presentIds ?? []), joinIds(event.volunteerRestIds ?? [])].map(esc).join(','))
   }
   return lines.join('\n') + '\n'
 }
@@ -158,6 +164,7 @@ function assertImportBudget(text: string) {
 export function importCsv(text: string): AppData {
   assertImportBudget(text)
   const data: AppData = { players: [], sessions: [], matches: [], overrides: [], baselines: [] }
+  const attendance: AttendanceEvent[] = []
   const seenSections = new Set<string>()
   let section: string | null = null
   let header: string[] | null = null
@@ -268,6 +275,42 @@ export function importCsv(text: string): AppData {
           throw new Error('欄位 openingRatings 不是有效的活動開場狀態')
         }
       }
+      if (row.liveMatch) {
+        try {
+          const parsed = JSON.parse(row.liveMatch) as Partial<MatchContext>
+          const teamA = parsed.teamA
+          const teamB = parsed.teamB
+          const resters = parsed.resters
+          const rawLineage = parsed.fairnessPeriodIds
+          if (rawLineage !== undefined && (!rawLineage || typeof rawLineage !== 'object' || Array.isArray(rawLineage))) {
+            throw new Error('invalid live lineage')
+          }
+          const lineage = rawLineage as Record<string, unknown> | undefined
+          if (
+            (parsed.mode !== 'singles' && parsed.mode !== 'doubles')
+            || !Array.isArray(teamA) || !Array.isArray(teamB) || !Array.isArray(resters)
+            || [...teamA, ...teamB, ...resters].some((id) => typeof id !== 'string' || !id)
+            || new Set([...teamA, ...teamB]).size !== teamA.length + teamB.length
+            || typeof parsed.liveMatchId !== 'string' || !parsed.liveMatchId
+            || !Number.isFinite(parsed.startedAt)
+            || !parsed.scoringFormat
+            || (lineage !== undefined && (
+              Object.keys(lineage).length !== teamA.length + teamB.length
+              || [...teamA, ...teamB].some((playerId) => typeof lineage[playerId] !== 'string' || !lineage[playerId])
+            ))
+          ) throw new Error('invalid live match')
+          s.liveMatch = {
+            mode: parsed.mode,
+            teamA: [...teamA], teamB: [...teamB], resters: [...resters],
+            scoringFormat: decodeScoringFormat(JSON.stringify(parsed.scoringFormat)),
+            liveMatchId: parsed.liveMatchId,
+            startedAt: parsed.startedAt,
+            fairnessPeriodIds: lineage as Record<string, string> | undefined,
+          }
+        } catch {
+          throw new Error(`活動「${s.name}」的 liveMatch 無效`)
+        }
+      }
       data.sessions.push(s)
     } else if (section === 'matches') {
       const mode = row.mode === 'singles' ? 'singles' : ('doubles' as Mode)
@@ -284,12 +327,80 @@ export function importCsv(text: string): AppData {
         scoringFormat: decodeFormatCell(row.scoringFormat, `比賽 ${row.id ?? ''}`),
       }
       if (row.excludedFromRating === 'true') m.excludedFromRating = true
+      if (row.fairnessPeriodIds) {
+        try {
+          const lineage = JSON.parse(row.fairnessPeriodIds) as unknown
+          if (!lineage || typeof lineage !== 'object' || Array.isArray(lineage) || Object.entries(lineage).some(([playerId, periodId]) => !playerId || typeof periodId !== 'string' || !periodId)) throw new Error('invalid lineage')
+          m.fairnessPeriodIds = lineage as Record<string, string>
+        } catch {
+          throw new Error(`比賽 ${m.id} 的 fairnessPeriodIds 無效`)
+        }
+      }
       data.matches.push(m)
+    } else if (section === 'attendance') {
+      const kinds = new Set(['join', 'leave', 'voluntary-rest-start', 'voluntary-rest-end', 'fairness-reset-requested', 'fairness-period-started', 'fairness-recovery-boundary'])
+      if (!kinds.has(row.kind ?? '')) throw new Error(`未知 attendance 事件種類：${row.kind ?? ''}`)
+      const sequence = num(row.sequence, 'attendance.sequence')
+      if (!Number.isInteger(sequence)) throw new Error('attendance.sequence 必須是整數')
+      attendance.push({ id: row.id ?? '', sessionId: row.sessionId ?? '', kind: row.kind as AttendanceEvent['kind'], playerId: row.playerId || undefined, at: num(row.at, 'attendance.at'), sequence, liveMatchId: row.liveMatchId || undefined, presentIds: splitIds(row.presentIds ?? ''), volunteerRestIds: splitIds(row.volunteerRestIds ?? '') })
     }
     // 未知區段：略過（向前相容）
   }
   if (data.players.length === 0 && data.matches.length === 0) {
     throw new Error('CSV 內容為空或無法辨識')
+  }
+  const sessionsById = new Map(data.sessions.map((session) => [session.id, session]))
+  const playersById = new Set(data.players.map((player) => player.id))
+  const eventIds = new Set<string>()
+  const periodSessionById = new Map<string, string>()
+  for (const event of attendance) {
+    const session = sessionsById.get(event.sessionId)
+    if (!session) throw new Error(`attendance 事件參照未知活動：${event.sessionId}`)
+    if (!event.id || eventIds.has(event.id)) throw new Error(`attendance 事件 ID 重複或缺少：${event.id}`)
+    eventIds.add(event.id)
+    if (event.kind === 'fairness-period-started') periodSessionById.set(event.id, event.sessionId)
+    if (event.playerId && !playersById.has(event.playerId)) throw new Error(`attendance 事件參照未知球員：${event.playerId}`)
+    if (event.kind !== 'fairness-recovery-boundary' && !event.playerId) throw new Error(`attendance 事件缺少球員：${event.kind}`)
+    if (event.kind === 'fairness-recovery-boundary' && [...(event.presentIds ?? []), ...(event.volunteerRestIds ?? [])].some((id) => !playersById.has(id))) throw new Error('recovery boundary 參照未知球員')
+    ;(session.attendanceEvents ??= []).push(event)
+  }
+  for (const session of data.sessions) {
+    const live = session.liveMatch
+    if (!live) continue
+    if (!session.active) throw new Error(`已結束活動 ${session.id} 不可有 liveMatch`)
+    const lineup = [...live.teamA, ...live.teamB]
+    if (lineup.some((id) => !playersById.has(id) || !session.presentIds.includes(id))) {
+      throw new Error(`活動 ${session.id} 的 liveMatch 參照未知或不在場球員`)
+    }
+    for (const [playerId, periodId] of Object.entries(live.fairnessPeriodIds ?? {})) {
+      if (!lineup.includes(playerId) || periodSessionById.get(periodId) !== session.id) throw new Error(`活動 ${session.id} 的 liveMatch fairness lineage 無效`)
+    }
+  }
+  for (const match of data.matches) {
+    // 舊版 CSV 允許只有 players + matches、沒有 sessions 區段；這類資料沒有
+    // fairness lineage，仍交由既有 migration/normalization 相容處理。只要 CSV
+    // 已帶活動資料或新的 lineage，就必須嚴格驗證活動參照。
+    if ((sessionsById.size > 0 || match.fairnessPeriodIds) && !sessionsById.has(match.sessionId)) {
+      throw new Error(`比賽參照未知活動：${match.sessionId}`)
+    }
+    const lineupIds = [...match.teamA, ...match.teamB]
+    const lineup = new Set(lineupIds)
+    if (match.fairnessPeriodIds && lineup.size !== lineupIds.length) throw new Error(`比賽 ${match.id} 的球員重複`)
+    if ([...lineup].some((id) => !playersById.has(id))) throw new Error(`比賽 ${match.id} 參照未知球員`)
+    const lineage = match.fairnessPeriodIds
+    if (lineage && (Object.keys(lineage).length !== lineup.size || [...lineup].some((playerId) => !lineage[playerId]))) {
+      throw new Error(`比賽 ${match.id} 的 fairness lineage 不完整`)
+    }
+    for (const [playerId, periodId] of Object.entries(lineage ?? {})) {
+      if (!lineup.has(playerId) || periodSessionById.get(periodId) !== match.sessionId) throw new Error(`比賽 ${match.id} 的 fairness lineage 參照無效`)
+    }
+  }
+  for (const session of data.sessions) {
+    const sequences = new Set<number>()
+    for (const event of session.attendanceEvents ?? []) {
+      if (!event.id || sequences.has(event.sequence)) throw new Error(`活動 ${session.id} 的 attendance sequence 重複或缺少 id`)
+      sequences.add(event.sequence)
+    }
   }
   return data
 }

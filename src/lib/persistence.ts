@@ -14,7 +14,7 @@ export const STORAGE_KEY = 'badminton-matcher:v1'
 export const BACKUP_KEY = 'badminton-matcher:pre-scoring-format-v1'
 
 export type LoadOutcome =
-  | { status: 'ready'; data: AppData; raw: string | null }
+  | { status: 'ready'; data: AppData; raw: string | null; migrated: boolean }
   | { status: 'blocked'; raw: string; message: string }
 
 const emptyData = (): AppData => ({
@@ -22,18 +22,21 @@ const emptyData = (): AppData => ({
 })
 
 export function loadPersisted(storage: Storage | undefined): LoadOutcome {
-  if (!storage) return { status: 'ready', data: emptyData(), raw: null }
+  if (!storage) return { status: 'ready', data: emptyData(), raw: null, migrated: false }
 
   let raw: string | null = null
   try {
     raw = storage.getItem(STORAGE_KEY)
   } catch {
-    return { status: 'ready', data: emptyData(), raw: null }
+    return { status: 'ready', data: emptyData(), raw: null, migrated: false }
   }
-  if (raw === null || raw === '') return { status: 'ready', data: emptyData(), raw: null }
+  if (raw === null || raw === '') return { status: 'ready', data: emptyData(), raw: null, migrated: false }
 
   try {
-    return { status: 'ready', data: migrateAppData(normalizeAppData(JSON.parse(raw))), raw }
+    const parsed = JSON.parse(raw)
+    const before = JSON.stringify(parsed)
+    const data = migrateAppData(normalizeAppData(parsed))
+    return { status: 'ready', data, raw, migrated: JSON.stringify(data) !== before }
   } catch (error) {
     return { status: 'blocked', raw, message: (error as Error).message || '資料格式無法辨識' }
   }

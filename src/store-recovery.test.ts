@@ -63,6 +63,49 @@ describe('資料可正常讀取時', () => {
     store.persistData()
     expect(mem.map.has(BACKUP)).toBe(false)
   })
+
+  it('首次載入 active legacy session 就安全寫回固定 migration boundary', async () => {
+    const raw = JSON.stringify({
+      players: [{ id: 'p1', name: 'A', color: '#000', rating: 1500, rd: 350, vol: 0.06, initialRating: 1500, createdAt: 1 }],
+      sessions: [{ id: 's1', name: 'active', startedAt: 10, presentIds: ['p1'], leftIds: [], volunteerRest: [], active: true }],
+      matches: [], overrides: [], baselines: [],
+    })
+    mem.map.set(KEY, raw)
+    await loadStore()
+    const firstWrite = mem.map.get(KEY)!
+    const firstEvents = JSON.parse(firstWrite).sessions[0].attendanceEvents
+    expect(firstEvents).toHaveLength(2)
+    expect(mem.map.get(BACKUP)).toBe(raw)
+
+    vi.resetModules()
+    await loadStore()
+    expect(JSON.parse(mem.map.get(KEY)!).sessions[0].attendanceEvents).toEqual(firstEvents)
+  })
+
+  it('degrades only invalid fairness history, retains raw persistence, and repairs from one suffix', async () => {
+    const raw = JSON.stringify({
+      players: [
+        { id: 'p1', name: 'A', color: '#000', rating: 1500, rd: 350, vol: 0.06, initialRating: 1500, createdAt: 1 },
+        { id: 'p2', name: 'B', color: '#111', rating: 1500, rd: 350, vol: 0.06, initialRating: 1500, createdAt: 2 },
+      ],
+      sessions: [{
+        id: 's1', name: 'active', startedAt: 10, presentIds: ['p1', 'p2'], leftIds: [], volunteerRest: [], active: true,
+        attendanceEvents: [{ id: 'bad', sessionId: 's1', kind: 'leave', playerId: 'p1', at: 0, sequence: 0 }],
+      }],
+      matches: [], overrides: [], baselines: [],
+    })
+    mem.map.set(KEY, raw)
+    const store = await loadStore()
+    expect(store.recoveryState.value.status).toBe('ready')
+    expect(store.fairnessProjection.value).toMatchObject({ status: 'degraded' })
+    expect(JSON.parse(mem.map.get(KEY)!).sessions[0].attendanceEvents).toEqual(JSON.parse(raw).sessions[0].attendanceEvents)
+    expect(store.exportCsvText()).toContain('bad')
+    expect(store.repairFairness()).toBe(true)
+    expect(store.fairnessProjection.value).toMatchObject({ status: 'valid' })
+    const events = store.data.sessions[0]!.attendanceEvents!
+    expect(events.filter((event) => event.kind === 'fairness-recovery-boundary')).toHaveLength(1)
+    expect(events.slice(-2).map((event) => event.kind)).toEqual(['fairness-period-started', 'fairness-period-started'])
+  })
 })
 
 describe('資料讀不懂時', () => {

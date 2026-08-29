@@ -12,6 +12,7 @@ import {
   clearAllHistory,
   clearSession,
   data,
+  deleteMatch,
   editMatchScore,
   endSession,
   exportCsvText,
@@ -20,11 +21,15 @@ import {
   leaveSession,
   overrideRating,
   proposeRound,
+  resetFairnessPeriod,
+  refreshFairnessNow,
   ratingReportsBySession,
   restorePlayer,
   startMatch,
   startSession,
   submitScore,
+  swapInPending,
+  toggleVolunteerRest,
   ui,
 } from './store'
 import { recalcAll } from './lib/glicko2'
@@ -577,5 +582,85 @@ describe('取消進行中的比賽', () => {
     expect(proposeRound()).toBe(true)
     expect(ui.pending).not.toBeNull()
     expect(data.matches).toHaveLength(0)
+  })
+})
+
+describe('fairness live lineage', () => {
+  it('binds queued reset to a durable live identity and activates it only at cancellation', () => {
+    const players = [...'abcd'].map((name) => addPlayer(name, 1500))
+    startSession(players.map((player) => player.id), TEST_FORMAT)
+    expect(proposeRound()).toBe(true)
+    startMatch()
+    const session = data.sessions[0]!
+    const liveId = ui.live?.liveMatchId
+    expect(liveId).toEqual(expect.any(String))
+    expect(session.liveMatch).toEqual(ui.live)
+    resetFairnessPeriod(players[0]!.id)
+    expect(session.attendanceEvents?.at(-1)).toMatchObject({ kind: 'fairness-reset-requested', playerId: players[0]!.id, liveMatchId: liveId })
+    const beforeLeave = session.attendanceEvents?.length
+    leaveSession(players[0]!.id)
+    expect(session.attendanceEvents).toHaveLength(beforeLeave!)
+    expect(session.presentIds).toContain(players[0]!.id)
+    cancelLiveMatch()
+    expect(session.liveMatch).toBeUndefined()
+    expect(session.attendanceEvents?.at(-1)).toMatchObject({ kind: 'fairness-period-started', playerId: players[0]!.id })
+  })
+
+  it('uses event projection rather than stale compatibility attendance lists', () => {
+    const players = [...'abcd'].map((name) => addPlayer(name, 1500))
+    startSession(players.map((player) => player.id), TEST_FORMAT)
+    const session = data.sessions[0]!
+    session.presentIds = players.slice(0, 3).map((player) => player.id)
+    session.volunteerRest = [players[0]!.id]
+
+    expect(proposeRound()).toBe(true)
+    expect(new Set([...(ui.pending?.teamA ?? []), ...(ui.pending?.teamB ?? [])])).toEqual(new Set(players.map((player) => player.id)))
+    expect(ui.pending?.resters).toEqual([])
+  })
+
+  it('appends sequenced eligibility transitions, freezes previews across time, and persists manual-swap lineage', () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const players = [...'abcde'].map((name) => addPlayer(name, 1500))
+    startSession(players.slice(0, 4).map((player) => player.id), TEST_FORMAT)
+    const session = data.sessions[0]!
+    expect(session.attendanceEvents?.map((event) => event.kind)).toEqual([
+      'join', 'fairness-period-started', 'join', 'fairness-period-started',
+      'join', 'fairness-period-started', 'join', 'fairness-period-started',
+    ])
+    expect(proposeRound()).toBe(true)
+    const preview = ui.pending
+    now += 60_000
+    refreshFairnessNow()
+    expect(ui.pending).toBe(preview)
+
+    joinSession(players[4]!.id)
+    expect(ui.pending).toBeNull()
+    toggleVolunteerRest(players[4]!.id)
+    toggleVolunteerRest(players[4]!.id)
+    leaveSession(players[4]!.id)
+    joinSession(players[4]!.id)
+    const appended = session.attendanceEvents!.slice(8)
+    expect(appended.map((event) => event.kind)).toEqual([
+      'join', 'fairness-period-started', 'voluntary-rest-start', 'voluntary-rest-end', 'leave', 'join',
+    ])
+    expect(appended.map((event) => event.sequence)).toEqual([8, 9, 10, 11, 12, 13])
+
+    expect(proposeRound()).toBe(true)
+    const playing = [...ui.pending!.teamA, ...ui.pending!.teamB]
+    const rest = ui.pending!.resters[0]!
+    swapInPending(playing[0]!, rest)
+    startMatch()
+    const finalLineup = [...ui.live!.teamA, ...ui.live!.teamB]
+    const lineage = ui.live!.fairnessPeriodIds
+    expect(Object.keys(lineage ?? {}).sort()).toEqual([...finalLineup].sort())
+    expect(submitScore(21, 10)).toBeNull()
+    expect(data.matches[0]!.fairnessPeriodIds).toEqual(lineage)
+    const matchId = data.matches[0]!.id
+    expect(editMatchScore(matchId, 10, 21)).toBeNull()
+    expect(data.matches[0]!.fairnessPeriodIds).toEqual(lineage)
+    deleteMatch(matchId)
+    expect(data.matches).toHaveLength(0)
+    expect(session.attendanceEvents?.map((event) => event.sequence)).toEqual([...Array(14).keys()])
   })
 })

@@ -2,7 +2,7 @@
  * 分組演算法（純函式）。
  * 規則：公平優先於強度平衡。
  * 1. 自願休息者直接跳過安排（進休息名單）。
- * 2. 當日上場次數較少者優先；次數相同時，連續上場場數較少者優先。
+ * 2. 上場率公平層較低者優先；同層時，連續上場場數較少者優先。
  * 3. 在公平完全並列者中，聯合決定「誰上場」與「怎麼分隊」，取兩隊 rating 總和最接近者。
  * 4. 差距在容差內的選項視為等價，隨機挑一個以保留配對變化。
  */
@@ -10,8 +10,10 @@ import type { Match, Mode, RoundProposal } from '../types'
 
 export interface Candidate {
   id: string
-  /** 當日上場次數 */
+  /** 當日上場次數；fairness-degraded / legacy fallback only. */
   playCount: number
+  /** Precise current-period appearances/hour. Undefined preserves legacy fallback. */
+  ratePerHour?: number
   /** 同一場次中，從最近一場向前計算的連續上場場數 */
   consecutivePlayCount: number
   rating: number
@@ -24,8 +26,8 @@ export type Rng = () => number
 /**
  * 平衡容差：兩隊 rating 總和差在此範圍內的選項視為等價，隨機挑一個。
  *
- * 目的是配對變化，不是保護強弱極端者——後者由公平鍵負責：本輪被冷落者下一輪
- * 上場次數嚴格較低，會被無條件排入，上場次數差始終維持在 1 以內。
+ * 目的是配對變化，不是保護強弱極端者——後者由上場率公平層與連續上場鍵負責；
+ * Rating 不得推翻較嚴格的公平順位。
  *
  * 取 25 的依據：以實際名單十人全部並列量測，容差 0 時只有 2 個等價選項、僅涵蓋
  * 5 人；容差 25 時 37 個選項涵蓋全部 10 人，而最差被接受的選項總和差為 26 點，
@@ -120,7 +122,24 @@ export function balanceTeams(
   return { teamA, teamB }
 }
 
-const fairnessKey = (c: Candidate) => `${c.playCount}:${c.consecutivePlayCount}`
+const fairnessKey = (c: Candidate, layer: number) => `${layer}:${c.consecutivePlayCount}`
+
+/** Minimum-anchored 0.5 appearances/hour layers (not pairwise chained buckets). */
+export function rateLayers(candidates: readonly Candidate[]): Map<string, number> {
+  const layers = new Map<string, number>()
+  const ordered = [...candidates].sort((a, b) => (a.ratePerHour ?? 0) - (b.ratePerHour ?? 0))
+  let index = 0
+  let layer = 0
+  while (index < ordered.length) {
+    const anchor = ordered[index]!.ratePerHour ?? 0
+    while (index < ordered.length && (ordered[index]!.ratePerHour ?? 0) <= anchor + 0.5) {
+      layers.set(ordered[index]!.id, layer)
+      index++
+    }
+    layer++
+  }
+  return layers
+}
 
 /** C(n, k)，用於在列舉前判斷是否超過上限 */
 function choose(n: number, k: number): number {
@@ -160,19 +179,22 @@ export function generateRound(
   const eligible = candidates.filter((c) => !c.volunteerRest)
   if (eligible.length < need) return null
 
-  // 先隨機洗牌，再依上場次數與連續上場場數穩定排序 → 完全並列者隨機排列
+  // Build rate layers before random ordering; absent rate explicitly retains legacy count fairness.
+  const layers = eligible.some((candidate) => candidate.ratePerHour !== undefined)
+    ? rateLayers(eligible)
+    : new Map(eligible.map((candidate) => [candidate.id, candidate.playCount]))
   const ordered = shuffled(eligible, rng).sort(
     (a, b) =>
-      a.playCount - b.playCount || a.consecutivePlayCount - b.consecutivePlayCount,
+      (layers.get(a.id)! - layers.get(b.id)!) || a.consecutivePlayCount - b.consecutivePlayCount,
   )
 
   // 公平已判定嚴格較優者無條件上場；只有「邊界並列群」需要決定誰上
   const admitted: Candidate[] = []
   let index = 0
   while (index < ordered.length) {
-    const key = fairnessKey(ordered[index]!)
+    const key = fairnessKey(ordered[index]!, layers.get(ordered[index]!.id)!)
     const group: Candidate[] = []
-    while (index < ordered.length && fairnessKey(ordered[index]!) === key) {
+    while (index < ordered.length && fairnessKey(ordered[index]!, layers.get(ordered[index]!.id)!) === key) {
       group.push(ordered[index]!)
       index++
     }
@@ -186,8 +208,8 @@ export function generateRound(
   // 邊界群：與第一個未被無條件排入者公平完全並列的連續區段（ordered 已依公平鍵排序）
   const boundary: Candidate[] = []
   if (index < ordered.length) {
-    const key = fairnessKey(ordered[index]!)
-    for (let i = index; i < ordered.length && fairnessKey(ordered[i]!) === key; i++) {
+    const key = fairnessKey(ordered[index]!, layers.get(ordered[index]!.id)!)
+    for (let i = index; i < ordered.length && fairnessKey(ordered[i]!, layers.get(ordered[i]!.id)!) === key; i++) {
       boundary.push(ordered[i]!)
     }
   }

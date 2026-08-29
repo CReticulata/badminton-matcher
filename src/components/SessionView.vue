@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   activePlayers,
   currentSession,
   endSession,
+  fairnessProjection,
   joinSession,
+  refreshFairnessNow,
   leaveSession,
   playerById,
   proposeRound,
+  repairFairness,
+  resetFairnessPeriod,
   sessionStats,
   setSessionDefaultScoringFormat,
   startSession,
@@ -59,14 +63,45 @@ function onSaveDefault(snapshot: ScoringFormatSnapshot) {
   setSessionDefaultScoringFormat(snapshot)
   editingDefault.value = false
 }
+const authoritativePresentIds = computed(() => fairnessProjection.value?.status === 'valid'
+  ? Object.entries(fairnessProjection.value.participantStates).filter(([, state]) => state.present).map(([id]) => id)
+  : (sess.value?.presentIds ?? []))
 const presentPlayers = computed(() =>
-  (sess.value?.presentIds ?? [])
+  authoritativePresentIds.value
     .map((id) => playerById.value.get(id))
     .filter((p): p is NonNullable<typeof p> => !!p),
 )
 const absentPlayers = computed(() =>
-  activePlayers.value.filter((p) => !sess.value?.presentIds.includes(p.id)),
+  activePlayers.value.filter((p) => !authoritativePresentIds.value.includes(p.id)),
 )
+const fairnessDegraded = computed(() => fairnessProjection.value?.status === 'degraded')
+const rotationState = (id: string) => fairnessProjection.value?.status === 'valid'
+  ? fairnessProjection.value.participantStates[id]
+  : undefined
+const isVoluntaryRest = (id: string) => rotationState(id)?.volunteerRest ?? sess.value?.volunteerRest.includes(id) ?? false
+const isPlayingLive = (id: string) => !!ui.live && [...ui.live.teamA, ...ui.live.teamB].includes(id)
+
+let timer: ReturnType<typeof setInterval> | undefined
+let stopSessionWatch: (() => void) | undefined
+const syncTimer = () => {
+  if (timer) clearInterval(timer)
+  timer = sess.value ? setInterval(refreshFairnessNow, 60_000) : undefined
+}
+onMounted(() => {
+  syncTimer()
+  stopSessionWatch = watch(sess, syncTimer)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  stopSessionWatch?.()
+})
+
+function onResetRate(id: string) {
+  if (window.confirm('重置上場率不會更動今日上場總數或 Rating。確定重置？')) resetFairnessPeriod(id)
+}
+function onRepairFairness() {
+  if (window.confirm('將為所有目前在場者從現在開始新的公平計算期。確定修復？')) repairFairness()
+}
 
 function onPropose() {
   message.value = ''
@@ -141,6 +176,11 @@ function onEnd() {
         <h2 class="text-lg font-bold">{{ sess.name }}</h2>
         <button class="text-sm text-slate-400 hover:text-red-500" @click="onEnd">結束場次</button>
       </div>
+
+      <p v-if="fairnessDegraded" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        上場率公平目前無法使用；分組暫以總上場次數輪替。
+        <button class="ml-2 underline" @click="onRepairFairness">修復公平計算</button>
+      </p>
 
       <!-- 單/雙打切換 -->
       <div class="mb-4 flex overflow-hidden rounded-lg border border-slate-300 text-sm" role="group" aria-label="比賽模式">
@@ -222,23 +262,41 @@ function onEnd() {
         >
           <PlayerChip :name="p.name" :color="p.color" />
           <span class="text-xs text-slate-400">
-            上場 {{ sessionStats.get(p.id)?.played ?? 0 }}・休息
-            {{ sessionStats.get(p.id)?.rested ?? 0 }}
+            <template v-if="rotationState(p.id)">
+              上場率 {{ rotationState(p.id)!.ratePerHour.toFixed(2) }}/時・今日 {{ rotationState(p.id)!.dailyAppearances }} 場
+              <span v-if="rotationState(p.id)!.queuedReset">・重置待本場結束</span>
+            </template>
+            <template v-else>上場 {{ sessionStats.get(p.id)?.played ?? 0 }}・休息 {{ sessionStats.get(p.id)?.rested ?? 0 }}</template>
           </span>
           <span class="ml-auto flex items-center gap-2">
             <button
               class="rounded-md border px-2 py-1 text-xs"
               :class="
-                sess.volunteerRest.includes(p.id)
+                isVoluntaryRest(p.id)
                   ? 'border-amber-400 bg-amber-100 text-amber-800'
                   : 'border-slate-300 text-slate-500'
               "
+              :disabled="isPlayingLive(p.id)"
               @click="toggleVolunteerRest(p.id)"
             >
-              {{ sess.volunteerRest.includes(p.id) ? '自願休息中' : '自願休息' }}
+              {{ isVoluntaryRest(p.id) ? '自願休息中' : '自願休息' }}
             </button>
+            <details class="relative">
+              <summary class="cursor-pointer list-none rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-500">
+                更多
+              </summary>
+              <div class="absolute right-0 z-10 mt-1 min-w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                <button
+                  class="w-full rounded-md px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-50"
+                  @click="onResetRate(p.id)"
+                >
+                  重置上場率
+                </button>
+              </div>
+            </details>
             <button
               class="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-500"
+              :disabled="isPlayingLive(p.id)"
               @click="leaveSession(p.id)"
             >
               離場
