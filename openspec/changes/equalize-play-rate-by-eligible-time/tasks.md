@@ -1,0 +1,44 @@
+## 1. Pure fairness event model and projector
+
+- [x] 1.1 RED — add focused tests in `src/lib/__tests__/rotation-fairness.test.ts` for join/leave/rest intervals, App-closed elapsed time, timestamp `0`, stable same-timestamp sequence, rejoin continuity, zero-duration rate, single/doubles counting, invalid transitions, and deterministic injected evaluation time; run `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/lib/__tests__/rotation-fairness.test.ts` and record the expected failures.
+- [x] 1.2 GREEN — add bounded attendance-event, fairness-period, recovery-boundary, and match-lineage types in `src/types.ts`; implement the pure authoritative projector and validators in a new `src/lib/rotation-fairness.ts` without touching Glicko modules; rerun the focused projector tests to GREEN.
+- [x] 1.3 RED/GREEN — extend projector tests for immediate reset, queued live reset, completion/cancellation boundary attribution, score-only edits, match deletion, daily-total separation, and recovery suffix behavior; implement only the minimal projector/lineage helpers required, then rerun the focused suite.
+- [x] 1.4 Focused closure — add property/table tests covering event replay determinism, non-negative eligible time, idempotent recovery boundaries, unknown period references, and no cross-session attribution; rerun `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/lib/__tests__/rotation-fairness.test.ts`.
+
+## 2. Persistence, CSV, and legacy migration
+
+- [x] 2.1 RED — add migration and normalization tests in `src/lib/__tests__/migration.test.ts`, `src/lib/__tests__/persistence.test.ts`, and fixtures for active legacy sessions, ended legacy sessions, resting participants, idempotent reload, timestamp `0`, and Rating/opening-snapshot byte-semantic preservation; run those focused files and capture RED.
+- [x] 2.2 GREEN — update `src/lib/migration.ts`, `src/lib/app-data-normalization.ts`, and bounded persistence surfaces so active legacy sessions receive one migration-time recovery boundary while ended sessions receive no fabricated events; preserve matches, daily totals, Glicko states, baselines, overrides, scoring snapshots, and replay boundaries; rerun the focused migration/persistence tests.
+- [x] 2.3 RED — extend `src/lib/__tests__/csv.test.ts` with attendance-event sections, explicit sequence, match-to-period lineage, ended-session retention, malformed references, unknown event kinds, raw-recovery behavior, and full CSV round-trip parity; run `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/lib/__tests__/csv.test.ts` and capture RED.
+- [x] 2.4 GREEN — update `src/lib/csv.ts` to export/import the new authoritative records with deterministic order and post-parse reference validation; do not infer missing timing or scoring data; rerun CSV, migration, and persistence focused tests.
+- [x] 2.5 Rating non-interference check — run the existing focused Glicko, rating-history, migration, persistence, and scoring-format suites together and prove that fairness migration adds no Rating event, changes no Glicko result, and moves no activity replay boundary: `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/lib/__tests__/glicko2.test.ts src/lib/__tests__/rating-history.test.ts src/lib/__tests__/migration.test.ts src/lib/__tests__/persistence.test.ts src/lib/__tests__/scoring-format.test.ts`.
+
+## 3. Store transitions, live lineage, and degradation
+
+- [x] 3.1 RED — add `src/store.test.ts` scenarios proving session start, late join, leave/rejoin, voluntary-rest transitions, immediate reset, pending reset, match completion/cancellation, and eligibility changes during preview append the correct events and invalidate only unstarted proposals; run the focused store suite and capture RED.
+- [x] 3.2 GREEN — update bounded session transitions in `src/store.ts` to append sequenced authoritative events, derive operational attendance from the projector, clear pending previews on eligibility events, and leave time-only updates non-invalidating; rerun focused store tests.
+- [x] 3.3 RED/GREEN — add store tests for match-start period capture after manual swaps, completed-match lineage persistence, queued reset activation only after completion/cancellation, reload/cancellation recovery, score edit stability, and deletion re-projection; minimally extend live context and completed `Match` handling in `src/store.ts` and `src/types.ts`, then rerun.
+- [x] 3.4 RED/GREEN — add semantically invalid but structurally readable timelines to `src/store-recovery.test.ts`; implement fairness-degraded mode, legacy total-count candidate projection, persistent warning state, raw export availability, no fabricated degraded lineage, queued-safe all-present recovery boundary, and recovery cancellation of pending preview; rerun store recovery and projector tests.
+- [x] 3.5 Store closure — run `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/store.test.ts src/store-recovery.test.ts src/lib/__tests__/rotation-fairness.test.ts` and record exact results.
+
+## 4. Time-normalized matchmaking
+
+- [x] 4.1 RED — extend `src/lib/__tests__/matchmaking.test.ts` with precise rates, inclusive 0.5 appearances/hour boundary, minimum-anchored non-transitive example `1.0/1.4/1.8`, zero-duration newcomer, consecutive-count precedence inside a rate layer, voluntary-rest exclusion, deterministic seeded RNG, singles/doubles capacity, and insufficient-player cases; run the focused suite and capture RED.
+- [x] 4.2 GREEN — change only the fairness input/layering surfaces in `src/lib/matchmaking.ts`: construct rate layers before random tie order, apply lexicographic layer then consecutive count, and pass the boundary tie group into existing joint selection; keep Rating calculation independent of timing modules; rerun focused matchmaking tests.
+- [x] 4.3 Regression lock — add/retain tests proving +25 Rating tolerance, three doubles splits, joint playing-group optimization, 10,000-option bound, non-truncating fallback, manual proposal reproducibility, and Rating not overriding stricter fairness; rerun `npm exec --yes --package=pnpm@11.22.0 -- pnpm vitest run src/lib/__tests__/matchmaking.test.ts`.
+- [x] 4.4 Integration closure — add store-level proposal tests at injected times proving late join does not inherit pre-join debt, elapsed time alone does not replace a pending proposal, and a later proposal uses the new precise time; rerun matchmaking and store focused suites together.
+
+## 5. Active-session UI and recovery controls
+
+- [x] 5.1 RED — add component/store-facing tests for two-decimal play-rate plus daily-total display, minute/event refresh, no fairness-band setting, per-player secondary reset action, confirmation copy, queued-reset state, and unchanged ended-history UI; keep tests scoped to affected components such as `src/components/PlayersView.vue` and `src/components/SessionView.vue`.
+- [x] 5.2 GREEN — implement the activity-scoped minute tick and compact active-roster display in the bounded affected Vue components/store exports; render precise projection rounded only for display and clean up timers on scope disposal; rerun focused UI tests.
+- [x] 5.3 GREEN — implement the secondary-menu reset confirmation, pending-reset feedback, persistent fairness-degraded banner, raw-export path, and all-present repair control; do not add manual-swap warnings and do not expose a 0.5-band setting; rerun focused UI and recovery tests.
+- [x] 5.4 Browser evidence — run the dev app with `npm exec --yes --package=pnpm@11.22.0 -- pnpm dev --host 127.0.0.1`, then verify in real Chromium: start activity, wait for minute refresh, late join, voluntary rest pause/resume, preview invalidation, manual swap, immediate reset, live queued reset, reload timing, degraded warning, repair, and CSV export/import; record screenshots/notes and stop the dev server.
+
+## 6. Documentation and full verification
+
+- [x] 6.1 Update `design.md` to replace total-play-count-first behavior with the accepted play-rate fairness order and cross-reference `CONTEXT.md`, ADR 0002, and the archived OpenSpec path when available; update user-facing `README.md` only where it currently describes the old fairness behavior.
+- [x] 6.2 Run strict OpenSpec validation and resolve every finding: `openspec validate equalize-play-rate-by-eligible-time --strict`.
+- [x] 6.3 Run the complete test suite with the pinned package manager and record the real count/outcome: `npm exec --yes --package=pnpm@11.22.0 -- pnpm test`.
+- [x] 6.4 Run the production type-check/build and record the real result: `npm exec --yes --package=pnpm@11.22.0 -- pnpm build`.
+- [x] 6.5 Review the final diff for scope, event authority, migration idempotence, fallback disclosure, timer cleanup, CSV round-trip, and explicit Glicko/replay non-interference; do not archive the change until implementation, browser evidence, tests, and build are complete.

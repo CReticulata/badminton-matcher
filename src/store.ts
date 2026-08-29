@@ -33,6 +33,7 @@ import {
 } from './lib/persistence'
 import { cloneScoringFormat, isLegalEndpoint, isStructured } from './lib/scoring-format'
 import { levelToRating } from './lib/level'
+import { projectRotationState } from './lib/rotation-fairness'
 
 const INITIAL_TIERS = [
   '新手階',
@@ -113,6 +114,11 @@ watch(
   { deep: true },
 )
 
+// A successful legacy migration must become a stable, one-time boundary before
+// the user performs another action. The existing backup gate still runs first;
+// if it cannot write safely, persistenceError remains visible and old bytes stay intact.
+if (outcome.status === 'ready' && outcome.migrated) persistData()
+
 export const BLOCKED_MESSAGE = '本機資料尚未復原，請先完成復原流程再繼續'
 
 /**
@@ -149,12 +155,90 @@ export const ui = reactive<{
   /** 顯示比分輸入 */
   scoring: boolean
   mode: Mode
-}>({ view: 'session', pending: null, live: null, scoring: false, mode: 'doubles' })
+}>({
+  view: 'session',
+  pending: null,
+  live: outcome.status === 'ready'
+    ? outcome.data.sessions.find((session) => session.active)?.liveMatch ?? null
+    : null,
+  scoring: false,
+  mode: 'doubles',
+})
 
 const genId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-// ---------- 衍生資料 ----------
+function appendAttendance(session: Session, kind: import('./types').AttendanceEvent['kind'], playerId?: string, extra: Partial<import('./types').AttendanceEvent> = {}) {
+  const events = session.attendanceEvents ?? (session.attendanceEvents = [])
+  const sequence = events.reduce((max, event) => Math.max(max, event.sequence), -1) + 1
+  const at = Date.now()
+  events.push({ id: genId(), sessionId: session.id, kind, playerId, at, sequence, ...extra })
+  fairnessEvaluationTime.value = at
+}
+
+function clearPendingForEligibility() { ui.pending = null }
+const isLivePlayer = (playerId: string) => !!ui.live && [...ui.live.teamA, ...ui.live.teamB].includes(playerId)
+
+/** Resolve only reset requests owned by this durable live-match boundary. */
+function resolveQueuedResets(session: Session, liveMatchId: string | undefined) {
+  if (!liveMatchId) return
+  const requests = [...(session.attendanceEvents ?? [])]
+  const repair = requests.find((event) => event.kind === 'fairness-recovery-boundary' && event.liveMatchId === liveMatchId)
+  if (repair) {
+    appendAttendance(session, 'fairness-recovery-boundary', undefined, {
+      presentIds: [...session.presentIds],
+      volunteerRestIds: [...session.volunteerRest],
+    })
+    for (const playerId of session.presentIds) appendAttendance(session, 'fairness-period-started', playerId)
+    return
+  }
+  for (const request of requests) {
+    if (request.kind === 'fairness-reset-requested' && request.liveMatchId === liveMatchId) {
+      appendAttendance(session, 'fairness-period-started', request.playerId)
+    }
+  }
+}
+
+export function resetFairnessPeriod(playerId: string) {
+  if (isBlocked()) return
+  const session = currentSession.value
+  if (!session || !session.presentIds.includes(playerId)) return
+  const live = ui.live
+  if (live && [...live.teamA, ...live.teamB].includes(playerId)) {
+    if (!(session.attendanceEvents ?? []).some((event) => event.kind === 'fairness-reset-requested' && event.playerId === playerId && event.liveMatchId === live.liveMatchId)) {
+      appendAttendance(session, 'fairness-reset-requested', playerId, { liveMatchId: live.liveMatchId })
+    }
+    return
+  }
+  appendAttendance(session, 'fairness-period-started', playerId)
+  clearPendingForEligibility()
+}
+
+export function repairFairness(): boolean {
+  if (isBlocked()) return false
+  const session = currentSession.value
+  if (!session) return false
+  if (ui.live) {
+    const liveMatchId = ui.live.liveMatchId
+    if (!liveMatchId) return false
+    if (!(session.attendanceEvents ?? []).some((event) => event.kind === 'fairness-recovery-boundary' && event.liveMatchId === liveMatchId)) {
+      appendAttendance(session, 'fairness-recovery-boundary', undefined, {
+        liveMatchId,
+        presentIds: [...session.presentIds],
+        volunteerRestIds: [...session.volunteerRest],
+      })
+    }
+    return true
+  }
+  appendAttendance(session, 'fairness-recovery-boundary', undefined, {
+    presentIds: [...session.presentIds],
+    volunteerRestIds: [...session.volunteerRest],
+  })
+  for (const playerId of session.presentIds) appendAttendance(session, 'fairness-period-started', playerId)
+  clearPendingForEligibility()
+  refreshFairnessNow()
+  return true
+}
 
 export const currentSession = computed<Session | null>(
   () => data.sessions.find((s) => s.active) ?? null,
@@ -173,6 +257,14 @@ const currentSessionMatches = computed(() => {
   const sessionId = currentSession.value?.id
   if (!sessionId) return []
   return data.matches.filter((match) => match.sessionId === sessionId)
+})
+
+/** A UI-owned minute tick refreshes this derived view; elapsed time is never persisted. */
+export const fairnessEvaluationTime = ref(Date.now())
+export function refreshFairnessNow() { fairnessEvaluationTime.value = Date.now() }
+export const fairnessProjection = computed(() => {
+  const session = currentSession.value
+  return session ? projectRotationState(session, session.attendanceEvents ?? [], currentSessionMatches.value, fairnessEvaluationTime.value) : null
 })
 
 export const ratingReportsBySession = computed(() => {
@@ -294,12 +386,20 @@ export const removePlayer = archivePlayer
 
 export function startSession(presentIds: string[], defaultScoringFormat: ScoringFormatSnapshot) {
   if (isBlocked()) return
+  // Replacing an active activity is also a live-match cancellation boundary.
+  if (currentSession.value) endSession()
   for (const s of data.sessions) s.active = false
   const now = new Date()
+  const startedAt = Date.now()
+  const id = genId()
+  const attendanceEvents = presentIds.flatMap((playerId, index) => [
+    { id: genId(), sessionId: id, kind: 'join' as const, playerId, at: startedAt, sequence: index * 2 },
+    { id: genId(), sessionId: id, kind: 'fairness-period-started' as const, playerId, at: startedAt, sequence: index * 2 + 1 },
+  ])
   data.sessions.push({
-    id: genId(),
+    id,
     name: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} 場次`,
-    startedAt: Date.now(),
+    startedAt,
     openingRatings: Object.fromEntries(
       data.players.map((player) => [
         player.id,
@@ -313,7 +413,9 @@ export function startSession(presentIds: string[], defaultScoringFormat: Scoring
     volunteerRest: [],
     active: true,
     defaultScoringFormat: cloneScoringFormat(defaultScoringFormat),
+    attendanceEvents,
   })
+  fairnessEvaluationTime.value = startedAt
   ui.pending = null
   ui.live = null
 }
@@ -336,44 +438,56 @@ export function setPendingScoringFormat(snapshot: ScoringFormatSnapshot) {
 
 export function endSession() {
   if (isBlocked()) return
+  // Ending is a cancellation boundary for a recoverable live match.
+  cancelLiveMatch()
   const s = currentSession.value
   if (s) {
     s.active = false
     s.endedAt = Date.now()
   }
   ui.pending = null
-  ui.live = null
   ui.scoring = false
 }
 
 export function joinSession(playerId: string) {
   if (isBlocked()) return
   const s = currentSession.value
-  if (!s) return
+  if (!s || s.presentIds.includes(playerId)) return
   s.participantIds ??= [...s.presentIds, ...s.leftIds]
   if (!s.participantIds.includes(playerId)) s.participantIds.push(playerId)
   if (!s.presentIds.includes(playerId)) s.presentIds.push(playerId)
   s.leftIds = s.leftIds.filter((x) => x !== playerId)
+  appendAttendance(s, 'join', playerId)
+  // A first late join starts its own fairness period; a rejoin resumes it.
+  if (!(s.attendanceEvents ?? []).some((event) => event.playerId === playerId && event.kind === 'fairness-period-started')) {
+    appendAttendance(s, 'fairness-period-started', playerId)
+  }
+  clearPendingForEligibility()
 }
 
 export function leaveSession(playerId: string) {
   if (isBlocked()) return
   const s = currentSession.value
-  if (!s) return
+  if (!s || !s.presentIds.includes(playerId) || isLivePlayer(playerId)) return
   s.presentIds = s.presentIds.filter((x) => x !== playerId)
   s.volunteerRest = s.volunteerRest.filter((x) => x !== playerId)
   if (!s.leftIds.includes(playerId)) s.leftIds.push(playerId)
+  appendAttendance(s, 'leave', playerId)
+  clearPendingForEligibility()
 }
 
 export function toggleVolunteerRest(playerId: string) {
   if (isBlocked()) return
   const s = currentSession.value
-  if (!s) return
+  if (!s || !s.presentIds.includes(playerId) || isLivePlayer(playerId)) return
   if (s.volunteerRest.includes(playerId)) {
     s.volunteerRest = s.volunteerRest.filter((x) => x !== playerId)
+    appendAttendance(s, 'voluntary-rest-end', playerId)
   } else {
     s.volunteerRest.push(playerId)
+    appendAttendance(s, 'voluntary-rest-start', playerId)
   }
+  clearPendingForEligibility()
 }
 
 // ---------- 分組 ----------
@@ -382,7 +496,24 @@ function candidates(): Candidate[] {
   const s = currentSession.value
   if (!s) return []
   const stats = sessionStats.value
+  const projection = projectRotationState(s, s.attendanceEvents ?? [], currentSessionMatches.value, Date.now())
+  const projected = projection.status === 'valid' ? projection.participantStates : undefined
   const consecutiveCounts = consecutivePlayCounts(currentSessionMatches.value)
+  if (projected) {
+    return Object.entries(projected)
+      .filter(([, state]) => state.present)
+      .map(([id, state]) => {
+        const p = playerById.value.get(id)
+        return {
+          id,
+          playCount: stats.get(id)?.played ?? 0,
+          ratePerHour: state.ratePerHour,
+          consecutivePlayCount: consecutiveCounts.get(id) ?? 0,
+          rating: p?.rating ?? 1500,
+          volunteerRest: state.volunteerRest,
+        }
+      })
+  }
   return s.presentIds.map((id) => {
     const p = playerById.value.get(id)
     return {
@@ -431,7 +562,19 @@ export function swapInPending(idA: string, idB: string) {
 export function startMatch() {
   if (isBlocked()) return
   if (!ui.pending) return
-  ui.live = { ...ui.pending, scoringFormat: cloneScoringFormat(ui.pending.scoringFormat) }
+  const session = currentSession.value
+  const projection = session ? projectRotationState(session, session.attendanceEvents ?? [], currentSessionMatches.value, Date.now()) : null
+  const ids = projection?.status === 'valid'
+    ? Object.fromEntries([...ui.pending.teamA, ...ui.pending.teamB].flatMap((id) => projection.participantStates[id]?.periodId ? [[id, projection.participantStates[id]!.periodId!]] : []))
+    : undefined
+  ui.live = {
+    ...ui.pending,
+    liveMatchId: genId(),
+    startedAt: Date.now(),
+    scoringFormat: cloneScoringFormat(ui.pending.scoringFormat),
+    fairnessPeriodIds: ids,
+  }
+  session!.liveMatch = ui.live
   ui.pending = null
 }
 
@@ -447,6 +590,12 @@ export function cancelPending() {
  */
 export function cancelLiveMatch() {
   if (isBlocked()) return
+  const session = currentSession.value
+  const live = ui.live ?? session?.liveMatch ?? null
+  if (session) {
+    resolveQueuedResets(session, live?.liveMatchId)
+    delete session.liveMatch
+  }
   ui.live = null
   ui.scoring = false
 }
@@ -512,6 +661,7 @@ export function submitScore(
     scoreB,
     resters: [...live.resters],
     scoringFormat: cloneScoringFormat(live.scoringFormat),
+    fairnessPeriodIds: live.fairnessPeriodIds,
   }
   if (excluded) match.excludedFromRating = true
   data.matches.push(match)
@@ -531,6 +681,8 @@ export function submitScore(
     }
   }
 
+  resolveQueuedResets(sess, live.liveMatchId)
+  delete sess.liveMatch
   ui.live = null
   ui.scoring = false
   return null
@@ -708,7 +860,7 @@ export function importCsvText(text: string) {
   data.overrides = parsed.overrides as typeof data.overrides
   data.baselines = parsed.baselines as typeof data.baselines
   ui.pending = null
-  ui.live = null
+  ui.live = parsed.sessions.find((session) => session.active)?.liveMatch ?? null
   ui.scoring = false
   if (blocked !== null) {
     // 先保留讀不懂的原始值，再解除封鎖並寫入還原後的資料

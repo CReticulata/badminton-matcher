@@ -4,7 +4,7 @@ import { DEFAULT_RD, DEFAULT_VOL, recalcAll } from './glicko2'
 const unique = (ids: readonly string[]) => [...new Set(ids)]
 
 /** 一次性補齊舊活動資料；既有固定快照絕不覆寫。 */
-export function migrateAppData(data: AppData): AppData {
+export function migrateAppData(data: AppData, migrationTime = Date.now()): AppData {
   const playersById = new Map(data.players.map((player) => [player.id, player]))
 
   for (const session of [...data.sessions].sort((a, b) => a.startedAt - b.startedAt)) {
@@ -29,6 +29,20 @@ export function migrateAppData(data: AppData): AppData {
         (latest, match) => Math.max(latest, match.at),
         session.startedAt,
       )
+    }
+    // Legacy active sessions have no trustworthy historical attendance.  Start an
+    // explicit suffix at migration time; ended sessions intentionally remain untouched.
+    if (session.active && (session.attendanceEvents === undefined || (session.attendanceEvents.length === 0 && session.presentIds.length > 0))) {
+      const boundaryId = `fairness-migration-${session.id}`
+      const presentIds = unique(session.presentIds)
+      const presentSet = new Set(presentIds)
+      const volunteerRestIds = unique(session.volunteerRest).filter((id) => presentSet.has(id))
+      session.presentIds = presentIds
+      session.volunteerRest = volunteerRestIds
+      session.attendanceEvents = [
+        { id: boundaryId, sessionId: session.id, kind: 'fairness-recovery-boundary', at: migrationTime, sequence: 0, presentIds, volunteerRestIds },
+        ...presentIds.map((playerId, index) => ({ id: `${boundaryId}-${playerId}`, sessionId: session.id, kind: 'fairness-period-started' as const, playerId, at: migrationTime, sequence: index + 1 })),
+      ]
     }
 
     if (session.openingRatings) continue

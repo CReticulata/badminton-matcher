@@ -5,6 +5,7 @@ import {
   balanceTeams,
   consecutivePlayCounts,
   generateRound,
+  rateLayers,
   type Candidate,
 } from '../matchmaking'
 import { createUnknownSnapshot } from '../scoring-format'
@@ -260,6 +261,48 @@ describe('generateRound', () => {
       'doubles',
     )!
     expect(out.resters).toEqual(['e'])
+  })
+})
+
+describe('time-normalized fairness layers', () => {
+  const rated = (id: string, ratePerHour: number, rating = 1500, consecutivePlayCount = 0, volunteerRest = false): Candidate => ({
+    id, playCount: 99, ratePerHour, rating, consecutivePlayCount, volunteerRest,
+  })
+
+  it('uses minimum-anchored, inclusive 0.5/hour layers without transitive chaining', () => {
+    const layers = rateLayers([rated('a', 1.0), rated('b', 1.4), rated('edge', 1.5), rated('c', 1.8)])
+    expect(layers.get('a')).toBe(0)
+    expect(layers.get('b')).toBe(0)
+    expect(layers.get('edge')).toBe(0)
+    expect(layers.get('c')).toBe(1)
+  })
+
+  it('never lets Rating override a stricter rate layer', () => {
+    const out = generateRound([
+      rated('a', 1, 1000), rated('b', 1, 1000), rated('c', 1, 2000), rated('d', 1, 2000),
+      rated('balanced-but-high', 1.6, 1500),
+    ], 'doubles', seededRng(1))!
+    expect(out.resters).toEqual(['balanced-but-high'])
+  })
+
+  it('uses fewer consecutive appearances before Rating inside one rate layer', () => {
+    const out = generateRound([
+      rated('a', 1.0, 1500, 4), rated('b', 1.1, 1500, 0), rated('c', 1.2, 1500, 0),
+      rated('d', 1.3, 1500, 0), rated('e', 1.4, 1500, 0),
+    ], 'doubles', seededRng(2))!
+    expect(out.resters).toEqual(['a'])
+  })
+
+  it('treats a zero-duration newcomer as the lowest rate and excludes volunteers before layering', () => {
+    const newcomer = generateRound([
+      rated('new', 0), rated('a', 1), rated('b', 1), rated('c', 1), rated('d', 1),
+    ], 'doubles', seededRng(3))!
+    expect([...newcomer.teamA, ...newcomer.teamB]).toContain('new')
+
+    const rested = generateRound([
+      rated('a', 0), rated('b', 0), rated('c', 0), rated('d', 10), rated('volunteer', 0, 1500, 0, true),
+    ], 'doubles', seededRng(4))!
+    expect(rested.resters).toEqual(['volunteer'])
   })
 })
 

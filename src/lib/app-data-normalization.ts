@@ -4,7 +4,7 @@
  * 缺少賽制欄位＝舊資料，補成 legacy-missing；已宣告但格式錯誤或與比分矛盾＝壞資料，
  * 整批拒絕。兩者不可混為一談：把壞資料降級成「未知」會讓損毀看起來像正常的舊紀錄。
  */
-import type { AppData, Match, ScoringFormatSnapshot, Session } from '../types'
+import type { AppData, Match, MatchContext, ScoringFormatSnapshot, Session } from '../types'
 import {
   createUnknownSnapshot,
   isLegalEndpoint,
@@ -35,17 +35,59 @@ function normalizeFormat(value: unknown, field: string): ScoringFormatSnapshot {
   }
 }
 
+function normalizeLiveMatch(value: unknown, field: string): MatchContext | undefined {
+  if (value === undefined || value === null) return undefined
+  const live = asRecord(value, field)
+  const mode = live.mode
+  const teamA = asArray(live.teamA, `${field}.teamA`)
+  const teamB = asArray(live.teamB, `${field}.teamB`)
+  const resters = asArray(live.resters, `${field}.resters`)
+  const allIds = [...teamA, ...teamB, ...resters]
+  if (
+    (mode !== 'singles' && mode !== 'doubles')
+    || allIds.some((id) => typeof id !== 'string' || !id)
+    || typeof live.liveMatchId !== 'string' || !live.liveMatchId
+    || !Number.isFinite(live.startedAt)
+  ) throw new Error(`${field} 無效`)
+  const lineup = [...teamA, ...teamB] as string[]
+  if (new Set(lineup).size !== lineup.length) throw new Error(`${field} 的上場名單重複`)
+  const lineage = live.fairnessPeriodIds === undefined
+    ? undefined
+    : asRecord(live.fairnessPeriodIds, `${field}.fairnessPeriodIds`)
+  if (lineage && (
+    Object.keys(lineage).length !== lineup.length
+    || lineup.some((playerId) => typeof lineage[playerId] !== 'string' || !lineage[playerId])
+    || Object.keys(lineage).some((playerId) => !lineup.includes(playerId))
+  )) {
+    throw new Error(`${field} 的公平 lineage 無效`)
+  }
+  return {
+    mode,
+    teamA: teamA as string[], teamB: teamB as string[], resters: resters as string[],
+    scoringFormat: normalizeFormat(live.scoringFormat, `${field}.scoringFormat`),
+    liveMatchId: live.liveMatchId,
+    startedAt: live.startedAt as number,
+    fairnessPeriodIds: lineage as Record<string, string> | undefined,
+  }
+}
+
 export function normalizeAppData(raw: unknown): AppData {
   const root = asRecord(raw, '資料')
 
   const sessions = asArray(root.sessions, 'sessions').map((value, index) => {
     const session = asRecord(value, `sessions[${index}]`) as unknown as Session
+    const liveMatch = normalizeLiveMatch(
+      (session as unknown as Record<string, unknown>).liveMatch,
+      `活動「${session.name ?? session.id}」的 liveMatch`,
+    )
+    if (liveMatch && !session.active) throw new Error(`已結束活動「${session.name ?? session.id}」不可有 liveMatch`)
     return {
       ...session,
       defaultScoringFormat: normalizeFormat(
         (session as unknown as Record<string, unknown>).defaultScoringFormat,
         `活動「${session.name ?? session.id}」`,
       ),
+      ...(liveMatch ? { liveMatch } : {}),
     }
   })
 

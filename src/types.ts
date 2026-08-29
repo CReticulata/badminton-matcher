@@ -47,6 +47,32 @@ export interface RatingBaseline {
   at: number
 }
 
+export type AttendanceEventKind =
+  | 'join'
+  | 'leave'
+  | 'voluntary-rest-start'
+  | 'voluntary-rest-end'
+  | 'fairness-reset-requested'
+  | 'fairness-period-started'
+  | 'fairness-recovery-boundary'
+
+/** Append-only authority for active-session attendance and fair-play timing. */
+export interface AttendanceEvent {
+  id: string
+  sessionId: string
+  kind: AttendanceEventKind
+  /** Recovery boundaries are session-wide; all other events are participant-specific. */
+  playerId?: string
+  at: number
+  /** Session-local stable ordering for same timestamps. */
+  sequence: number
+  /** A queued reset is bound to this live match until it resolves. */
+  liveMatchId?: string
+  /** Snapshot used only by an explicit recovery boundary. */
+  presentIds?: string[]
+  volunteerRestIds?: string[]
+}
+
 export interface Match {
   id: string
   sessionId: string
@@ -67,6 +93,8 @@ export interface Match {
    * 缺此欄位＝正常計入（舊資料相容）。
    */
   excludedFromRating?: boolean
+  /** Player -> frozen fairness period ID captured when this match began. */
+  fairnessPeriodIds?: Record<string, string>
 }
 
 /** 單一場次（一天的活動） */
@@ -92,6 +120,10 @@ export interface Session {
   active: boolean
   /** 尚未開打的比賽會繼承的預設賽制；變更只影響之後的比賽 */
   defaultScoringFormat: ScoringFormatSnapshot
+  /** Event authority for time-normalized fairness; absent means legacy data. */
+  attendanceEvents?: AttendanceEvent[]
+  /** Persisted in-progress match; queued fairness operations remain bound across reload. */
+  liveMatch?: MatchContext
 }
 
 export interface AppData {
@@ -113,4 +145,10 @@ export interface RoundProposal {
 /** 分組加上一份獨立的賽制快照；開打前可換，開打後凍結 */
 export interface MatchContext extends RoundProposal {
   readonly scoringFormat: ScoringFormatSnapshot
+  /** Durable identity established at match start; queued resets bind to it. */
+  readonly liveMatchId?: string
+  /** Wall-clock boundary at which the final lineup and fairness lineage were frozen. */
+  readonly startedAt?: number
+  /** Frozen at start; persisted on Match after score submission. */
+  readonly fairnessPeriodIds?: Record<string, string>
 }

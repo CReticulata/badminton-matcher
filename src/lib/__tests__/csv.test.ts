@@ -11,6 +11,7 @@ import {
   createCustomSnapshot,
   createUnknownSnapshot,
 } from '../scoring-format'
+import { projectRotationState } from '../rotation-fairness'
 
 /** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
 const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
@@ -159,6 +160,81 @@ describe('CSV 賽制欄位', () => {
   it('賽制欄位有值但解不開時整批拒絕', () => {
     const csv = exportCsv(withFormats()).replace('"{""schemaVersion""', '"{""bogus""')
     expect(() => importCsv(csv)).toThrow()
+  })
+})
+
+describe('CSV fairness lineage', () => {
+  it('round-trips deterministic attendance rows and explicit match period lineage', () => {
+    const data: AppData = JSON.parse(JSON.stringify(sample))
+    data.sessions[0]!.attendanceEvents = [
+      { id: 'e2', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p1', at: 0, sequence: 1 },
+      { id: 'e1', sessionId: 's1', kind: 'join', playerId: 'p1', at: 0, sequence: 0 },
+      { id: 'e4', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p2', at: 0, sequence: 3 },
+      { id: 'e3', sessionId: 's1', kind: 'join', playerId: 'p2', at: 0, sequence: 2 },
+    ]
+    data.matches[0]!.teamA = ['p1']
+    data.matches[0]!.teamB = ['p2']
+    data.matches[0]!.fairnessPeriodIds = { p1: 'e2', p2: 'e4' }
+    data.sessions[0]!.liveMatch = {
+      mode: 'singles', teamA: ['p1'], teamB: ['p2'], resters: [],
+      scoringFormat: createUnknownSnapshot('explicit-unknown'),
+      liveMatchId: 'live-1', startedAt: 10, fairnessPeriodIds: { p1: 'e2', p2: 'e4' },
+    }
+    const csv = exportCsv(data)
+    expect(csv).toContain('fairnessPeriodIds')
+    const back = importCsv(csv)
+    expect(back.matches[0]!.fairnessPeriodIds).toEqual({ p1: 'e2', p2: 'e4' })
+    expect(back.sessions[0]!.liveMatch).toEqual(data.sessions[0]!.liveMatch)
+    expect(back.sessions[0]!.attendanceEvents?.map((event) => [event.id, event.sequence])).toEqual([['e1', 0], ['e2', 1], ['e3', 2], ['e4', 3]])
+  })
+
+  it('rejects attendance references to unknown players and invalid match lineage', () => {
+    const data: AppData = JSON.parse(JSON.stringify(sample))
+    data.sessions[0]!.attendanceEvents = [{ id: 'e', sessionId: 's1', kind: 'join', playerId: 'missing', at: 0, sequence: 0 }]
+    expect(() => importCsv(exportCsv(data))).toThrow(/未知球員/)
+  })
+
+  it('rejects non-integer sequences and cross-session period lineage atomically', () => {
+    const data: AppData = JSON.parse(JSON.stringify(sample))
+    data.sessions[0]!.attendanceEvents = [
+      { id: 'e1', sessionId: 's1', kind: 'join', playerId: 'p1', at: 0, sequence: 0 },
+      { id: 'e2', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p1', at: 0, sequence: 1 },
+      { id: 'e3', sessionId: 's1', kind: 'join', playerId: 'p2', at: 0, sequence: 2 },
+      { id: 'e4', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p2', at: 0, sequence: 3 },
+    ]
+    data.matches[0]!.teamA = ['p1']
+    data.matches[0]!.teamB = ['p2']
+    data.matches[0]!.fairnessPeriodIds = { p1: 'e2', p2: 'e4' }
+    const csv = exportCsv(data)
+    expect(() => importCsv(csv.replace(',join,p1,0,0,', ',join,p1,0,0.5,'))).toThrow(/整數/)
+
+    const second = { ...JSON.parse(JSON.stringify(data.sessions[0]!)), id: 's2', name: 's2', active: false, attendanceEvents: undefined }
+    data.sessions.push(second)
+    second.attendanceEvents = [
+      { id: 's2-join', sessionId: 's2', kind: 'join', playerId: 'p1', at: 0, sequence: 0 },
+      { id: 's2-period', sessionId: 's2', kind: 'fairness-period-started', playerId: 'p1', at: 0, sequence: 1 },
+    ]
+    data.matches[0]!.fairnessPeriodIds = { p1: 's2-period', p2: 'e4' }
+    expect(() => importCsv(exportCsv(data))).toThrow(/lineage/)
+  })
+
+  it('preserves the fixed-time projector result and rejects an unknown authoritative event kind', () => {
+    const data: AppData = JSON.parse(JSON.stringify(sample))
+    data.sessions[0]!.attendanceEvents = [
+      { id: 'e1', sessionId: 's1', kind: 'join', playerId: 'p1', at: 0, sequence: 0 },
+      { id: 'e2', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p1', at: 0, sequence: 1 },
+      { id: 'e3', sessionId: 's1', kind: 'join', playerId: 'p2', at: 0, sequence: 2 },
+      { id: 'e4', sessionId: 's1', kind: 'fairness-period-started', playerId: 'p2', at: 0, sequence: 3 },
+    ]
+    data.matches[0]!.teamA = ['p1']
+    data.matches[0]!.teamB = ['p2']
+    data.matches[0]!.fairnessPeriodIds = { p1: 'e2', p2: 'e4' }
+    const roundTrip = importCsv(exportCsv(data))
+    const at = 7_200_000
+    expect(projectRotationState(roundTrip.sessions[0]!, roundTrip.sessions[0]!.attendanceEvents!, roundTrip.matches, at)).toEqual(
+      projectRotationState(data.sessions[0]!, data.sessions[0]!.attendanceEvents!, data.matches, at),
+    )
+    expect(() => importCsv(exportCsv(data).replace(',join,p1,0,0,', ',not-an-event,p1,0,0,'))).toThrow()
   })
 })
 

@@ -76,6 +76,27 @@ describe('loadPersisted', () => {
     expect(loadPersisted(s).status).toBe('blocked')
   })
 
+  it('保留可恢復的 live match，並拒絕損毀的 live identity', () => {
+    const base = JSON.parse(legacyRaw)
+    base.players.push({ id: 'p2', name: 'B', color: '#111', rating: 1500, rd: 350, vol: 0.06, initialRating: 1500, createdAt: 2 })
+    base.sessions[0].active = true
+    base.sessions[0].presentIds = ['p1', 'p2']
+    base.sessions[0].liveMatch = {
+      mode: 'singles', teamA: ['p1'], teamB: ['p2'], resters: [],
+      scoringFormat: { schemaVersion: 1, kind: 'unknown', reason: 'explicit-unknown' },
+      liveMatchId: 'live-1', startedAt: 30,
+    }
+    const valid = storage()
+    valid.map.set(STORAGE_KEY, JSON.stringify(base))
+    const out = loadPersisted(valid)
+    expect(out.status === 'ready' && out.data.sessions[0]!.liveMatch?.liveMatchId).toBe('live-1')
+
+    base.sessions[0].liveMatch.liveMatchId = ''
+    const broken = storage()
+    broken.map.set(STORAGE_KEY, JSON.stringify(base))
+    expect(loadPersisted(broken).status).toBe('blocked')
+  })
+
   it('blocked 時絕不寫入 storage', () => {
     const s = storage()
     s.map.set(STORAGE_KEY, '{not json')
