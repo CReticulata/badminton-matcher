@@ -1,6 +1,12 @@
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: Fairness keeps absolute priority over balance
+**Reason**: 公平鍵由「當日上場次數」改為以可上場時間正規化的上場率層，舊需求的場景名稱直接寫死場數語意，無法在原名稱下改寫。
+**Migration**: 由 `Time-normalized fairness keeps absolute priority over balance` 全面取代，自願休息與連續上場的絕對優先性維持不變。
+
+## ADDED Requirements
+
+### Requirement: Time-normalized fairness keeps absolute priority over balance
 Balance MUST only decide among candidates that the time-normalized fairness rules have already declared equivalent. At proposal time, eligible candidates MUST be partitioned into ordered play-rate layers using the lowest not-yet-layered precise rate as the anchor and a fixed inclusive tolerance of 0.5 appearances per hour. Candidates whose rates are no greater than the anchor plus the tolerance belong to that layer. A candidate in a lower-rate layer MUST be selected before a candidate in any higher-rate layer. Within one rate layer, fewer consecutive appearances MUST remain strictly prior to Rating balance. Voluntary rest MUST remove a candidate from selection entirely.
 
 #### Scenario: Rate difference crosses the fairness band
@@ -23,6 +29,8 @@ Balance MUST only decide among candidates that the time-normalized fairness rule
 - **WHEN** a candidate has marked voluntary rest
 - **THEN** they are placed in the rest list and are never considered for balance, whatever gap results
 
+## MODIFIED Requirements
+
 ### Requirement: The playing group and the split are chosen jointly within a tie group
 Among candidates tied on play-rate layer and consecutive-appearance count, the product MUST choose which of them play and how they are split as one decision, minimizing the absolute difference between the two teams' Rating sums. Candidates from stricter fairness groups that have already been admitted MUST remain in the playing group and participate in the split.
 
@@ -41,11 +49,11 @@ Among candidates tied on play-rate layer and consecutive-appearance count, the p
 ### Requirement: Variety is preserved among equivalent options
 Fairly equivalent options whose best team Rating-sum gap differs by no more than 25 Rating points from the best available gap MUST be treated as balance-equivalent, and one MUST be chosen at random using the injected random source. Selection MUST NOT be a deterministic function of ratings alone.
 
-#### Scenario: Several options lie inside the balance tolerance
+#### Scenario: Several options balance equally well
 - **WHEN** more than one fairly equivalent option has a best team gap no greater than the global best gap plus 25 Rating points
 - **THEN** the choice among them varies across runs with different random sources
 
-#### Scenario: Repeated proposals with unchanged recorded state
+#### Scenario: Repeated rounds with an unchanged roster
 - **WHEN** the same fairness snapshot is proposed repeatedly with no match or eligibility event recorded
 - **THEN** selected groups and pairings can vary rather than repeating one arrangement
 

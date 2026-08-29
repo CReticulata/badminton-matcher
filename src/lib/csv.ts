@@ -1,6 +1,6 @@
 /**
  * 單一 CSV 檔匯出/匯入（覆蓋還原語意，換手機/備份用）。
- * 檔內以 [players] / [overrides] / [baselines] / [sessions] / [matches] 區段分隔。
+ * 檔內以 [players] / [overrides] / [baselines] / [sessions] / [matches] / [attendance] 區段分隔。
  * 陣列欄位以 "|" 連接。
  */
 import type { AppData, AttendanceEvent, Match, MatchContext, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'

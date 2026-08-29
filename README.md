@@ -58,7 +58,8 @@ flowchart TD
 - **Rating 差距在最佳值 +25 內視為等價，隨機挑**。這只在前述公平條件完全相同後作用，不能推翻上場率公平層或連續上場順位。
 - **組合數爆炸時退回，不截斷**。截斷會讓不完整的搜尋看起來像完整的。
 
-依據見 `docs/research/score-aware-margin-calibration.md`。
+公平模型的名詞定義見 `CONTEXT.md`，「為什麼用事件而不是計數器」見 `docs/adr/0002-event-sourced-play-rate-fairness.md`；
+以比分（而非只看勝負）更新強度的依據見 `docs/research/score-aware-margin-calibration.md`。
 
 ## 技術棧
 
@@ -73,7 +74,7 @@ Vue 3 + TypeScript + Vite + Tailwind CSS v4，無後端，資料存 localStorage
   - `level.ts`：積分與級數的換算
   - `rating-history.ts`、`persistence.ts`、`app-data-normalization.ts`、`migration.ts`、`csv.ts`、`color.ts`
 - 全域 store 在 `src/store.ts`（Vue reactivity，非 pinia），UI 流程用 `ui.view` 切換，無 vue-router
-- 規格見 `spec.md`，設計決策以 `design.md` 為準，領域詞彙見 `CONTEXT.md`
+- 規格見 `spec.md`（原始需求，未隨實作更新），設計決策以 `design.md` 為準，領域詞彙見 `CONTEXT.md`，架構與取捨見 `IMPLEMENTATION_NOTES.md`，重大決策理由見 `docs/adr/`
 - 規格變更流程用 OpenSpec（`openspec/`），研究與離線佐證放 `docs/research/`，不進正式建置
 
 ## 開發
