@@ -77,7 +77,7 @@ describe('active fairness mounted lifecycle', () => {
     wrapper.unmount()
   })
 
-  it('queues a confirmed reset from the live overlay and exposes pending feedback', async () => {
+  it('omits reset controls from the live overlay while retaining the active-session reset action', async () => {
     const { players, session, periods } = startTwoPlayers()
     const live = {
       liveMatchId: 'live-1', startedAt: 100_001, mode: 'singles' as const,
@@ -88,15 +88,20 @@ describe('active fairness mounted lifecycle', () => {
     session.liveMatch = live
     const confirm = vi.fn(() => true)
     Object.defineProperty(window, 'confirm', { configurable: true, value: confirm })
-    const wrapper = mount(MatchDisplay)
+    const liveWrapper = mount(MatchDisplay)
 
-    const resetA = wrapper.findAll('button').find((button) => button.text() === '重置 A')!
+    expect(liveWrapper.text()).not.toContain('賽後重置')
+    expect(liveWrapper.findAll('button').some((button) => button.text().startsWith('重置 '))).toBe(false)
+
+    const sessionWrapper = mount(SessionView)
+    const resetA = sessionWrapper.findAll('button').find((button) => button.text() === '重置上場率')!
     await resetA.trigger('click')
     expect(confirm).toHaveBeenCalledWith('重置上場率不會更動今日上場總數或 Rating。確定重置？')
-    expect(wrapper.text()).toContain('A 已排定')
+    expect(sessionWrapper.text()).toContain('重置待本場結束')
     expect(session.attendanceEvents!.at(-1)).toMatchObject({
       kind: 'fairness-reset-requested', playerId: players[0]!.id, liveMatchId: 'live-1',
     })
-    wrapper.unmount()
+    sessionWrapper.unmount()
+    liveWrapper.unmount()
   })
 })

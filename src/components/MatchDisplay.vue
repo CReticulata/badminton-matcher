@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { cancelLiveMatch, fairnessProjection, playerById, resetFairnessPeriod, ui } from '../store'
+import { cancelLiveMatch, playerById, ui } from '../store'
 import { displayScoringFormat } from '../lib/scoring-format'
 import { textColorOn } from '../lib/color'
 
@@ -9,18 +9,10 @@ const player = (id: string) => playerById.value.get(id)
 const colorOf = (id: string) => player(id)?.color ?? '#555555'
 const nameOf = (id: string) => player(id)?.name ?? '?'
 const restNames = computed(() => (live.value?.resters ?? []).map(nameOf).join('、'))
-const lineupIds = computed(() => live.value ? [...live.value.teamA, ...live.value.teamB] : [])
-const isResetQueued = (id: string) => fairnessProjection.value?.status === 'valid'
-  && !!fairnessProjection.value.participantStates[id]?.queuedReset
 
 function confirmCancel() {
   if (!window.confirm('確定取消這場比賽？本場不會留下任何紀錄。')) return
   cancelLiveMatch()
-}
-
-function confirmReset(id: string) {
-  if (!window.confirm('重置上場率不會更動今日上場總數或 Rating。確定重置？')) return
-  resetFairnessPeriod(id)
 }
 </script>
 
@@ -96,24 +88,8 @@ function confirmReset(id: string) {
       <p v-if="restNames" class="min-w-0 shrink truncate text-sm text-white/50">
         休息：{{ restNames }}
       </p>
-      <details class="relative ml-auto shrink-0">
-        <summary class="cursor-pointer list-none whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90">
-          賽後重置
-        </summary>
-        <div class="absolute bottom-full right-0 mb-1 min-w-36 rounded-lg border border-white/15 bg-slate-900 p-1 shadow-xl">
-          <button
-            v-for="id in lineupIds"
-            :key="id"
-            class="block w-full whitespace-nowrap rounded-md px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 disabled:text-white/35"
-            :disabled="isResetQueued(id)"
-            @click="confirmReset(id)"
-          >
-            {{ isResetQueued(id) ? `${nameOf(id)} 已排定` : `重置 ${nameOf(id)}` }}
-          </button>
-        </div>
-      </details>
       <button
-        class="shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90"
+        class="ml-auto shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90"
         @click="confirmCancel"
       >
         取消<span class="hidden landscape:inline">此對戰</span>
