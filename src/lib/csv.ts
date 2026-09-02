@@ -5,6 +5,8 @@
  */
 import type { AppData, AttendanceEvent, Match, MatchContext, Mode, Player, RatingBaseline, RatingOverride, Session } from '../types'
 import { createUnknownSnapshot, decodeScoringFormat, encodeScoringFormat } from './scoring-format'
+import { assertValidCompletionChronology } from './rotation-chronology'
+import { cloneValidatedRotationWildcardLineage } from './rotation-wildcard-lineage'
 
 /** 匯入上限：對應瀏覽器 localStorage 實際放得下的量級 */
 export const IMPORT_MAX_BYTES = 5 * 1024 * 1024
@@ -72,11 +74,11 @@ const BASELINE_HEADER = ['id', 'playerId', 'rating', 'rd', 'vol', 'at']
 const SESSION_HEADER = [
   'id', 'name', 'startedAt', 'endedAt', 'presentIds', 'leftIds', 'volunteerRest', 'active',
   'participantIds', 'participantOrderReliable', 'addedDuringSessionIds', 'openingRatings',
-  'defaultScoringFormat', 'liveMatch',
+  'nextCompletionSequence', 'rotationWildcardCooldownRemaining', 'defaultScoringFormat', 'liveMatch',
 ]
 const MATCH_HEADER = [
-  'id', 'sessionId', 'at', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters',
-  'scoringFormat', 'excludedFromRating', 'fairnessPeriodIds',
+  'id', 'sessionId', 'at', 'completionSequence', 'mode', 'teamA', 'teamB', 'scoreA', 'scoreB', 'resters',
+  'scoringFormat', 'excludedFromRating', 'fairnessPeriodIds', 'rotationWildcard',
 ]
 
 const ATTENDANCE_HEADER = ['id', 'sessionId', 'kind', 'playerId', 'at', 'sequence', 'liveMatchId', 'presentIds', 'volunteerRestIds']
@@ -106,6 +108,7 @@ export function exportCsv(data: AppData): string {
         joinIds(s.leftIds), joinIds(s.volunteerRest), s.active,
         joinIds(s.participantIds ?? []), s.participantOrderReliable ?? '',
         joinIds(s.addedDuringSessionIds ?? []), s.openingRatings ? JSON.stringify(s.openingRatings) : '',
+        s.nextCompletionSequence ?? '', s.rotationWildcardCooldownRemaining ?? '',
         encodeScoringFormat(s.defaultScoringFormat), s.liveMatch ? JSON.stringify(s.liveMatch) : '',
       ]
         .map(esc)
@@ -116,10 +119,11 @@ export function exportCsv(data: AppData): string {
   for (const m of data.matches) {
     lines.push(
       [
-        m.id, m.sessionId, m.at, m.mode, joinIds(m.teamA), joinIds(m.teamB),
+        m.id, m.sessionId, m.at, m.completionSequence ?? '', m.mode, joinIds(m.teamA), joinIds(m.teamB),
         m.scoreA, m.scoreB, joinIds(m.resters), encodeScoringFormat(m.scoringFormat),
         m.excludedFromRating === true ? 'true' : '',
         m.fairnessPeriodIds ? JSON.stringify(m.fairnessPeriodIds) : '',
+        m.rotationWildcard ? JSON.stringify(m.rotationWildcard) : '',
       ]
         .map(esc)
         .join(','),
@@ -253,6 +257,15 @@ export function importCsv(text: string): AppData {
       }
       const endedAt = optionalNum(row.endedAt, 'endedAt')
       if (endedAt !== undefined) s.endedAt = endedAt
+      const nextCompletionSequence = optionalNum(row.nextCompletionSequence, 'nextCompletionSequence')
+      if (nextCompletionSequence !== undefined) s.nextCompletionSequence = nextCompletionSequence
+      const cooldown = optionalNum(row.rotationWildcardCooldownRemaining, 'rotationWildcardCooldownRemaining')
+      if (cooldown !== undefined) {
+        if (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 2) {
+          throw new Error('rotationWildcardCooldownRemaining 必須是 0、1 或 2')
+        }
+        s.rotationWildcardCooldownRemaining = cooldown
+      }
       if (row.participantIds !== undefined) s.participantIds = splitIds(row.participantIds)
       if (row.participantOrderReliable !== undefined && row.participantOrderReliable !== '') {
         s.participantOrderReliable = row.participantOrderReliable === 'true'
@@ -299,14 +312,20 @@ export function importCsv(text: string): AppData {
               || [...teamA, ...teamB].some((playerId) => typeof lineage[playerId] !== 'string' || !lineage[playerId])
             ))
           ) throw new Error('invalid live match')
-          s.liveMatch = {
+          const liveMatch: MatchContext = {
             mode: parsed.mode,
             teamA: [...teamA], teamB: [...teamB], resters: [...resters],
             scoringFormat: decodeScoringFormat(JSON.stringify(parsed.scoringFormat)),
             liveMatchId: parsed.liveMatchId,
             startedAt: parsed.startedAt,
-            fairnessPeriodIds: lineage as Record<string, string> | undefined,
+            ...(lineage ? { fairnessPeriodIds: lineage as Record<string, string> } : {}),
+            ...(parsed.rotationWildcard ? { rotationWildcard: parsed.rotationWildcard } : {}),
           }
+          const rotationWildcard = cloneValidatedRotationWildcardLineage(liveMatch)
+          if (parsed.rotationWildcard && !rotationWildcard) throw new Error('invalid rotation wildcard lineage')
+          if (rotationWildcard) liveMatch.rotationWildcard = rotationWildcard
+          else delete liveMatch.rotationWildcard
+          s.liveMatch = liveMatch
         } catch {
           throw new Error(`活動「${s.name}」的 liveMatch 無效`)
         }
@@ -326,6 +345,8 @@ export function importCsv(text: string): AppData {
         resters: splitIds(row.resters ?? ''),
         scoringFormat: decodeFormatCell(row.scoringFormat, `比賽 ${row.id ?? ''}`),
       }
+      const completionSequence = optionalNum(row.completionSequence, 'completionSequence')
+      if (completionSequence !== undefined) m.completionSequence = completionSequence
       if (row.excludedFromRating === 'true') m.excludedFromRating = true
       if (row.fairnessPeriodIds) {
         try {
@@ -334,6 +355,17 @@ export function importCsv(text: string): AppData {
           m.fairnessPeriodIds = lineage as Record<string, string>
         } catch {
           throw new Error(`比賽 ${m.id} 的 fairnessPeriodIds 無效`)
+        }
+      }
+      if (row.rotationWildcard) {
+        try {
+          const parsed = JSON.parse(row.rotationWildcard) as Match['rotationWildcard']
+          m.rotationWildcard = parsed
+          const validated = cloneValidatedRotationWildcardLineage(m)
+          if (!validated) throw new Error('invalid rotation wildcard lineage')
+          m.rotationWildcard = validated
+        } catch {
+          throw new Error(`比賽 ${m.id} 的 rotationWildcard 無效`)
         }
       }
       data.matches.push(m)
@@ -400,6 +432,17 @@ export function importCsv(text: string): AppData {
     for (const event of session.attendanceEvents ?? []) {
       if (!event.id || sequences.has(event.sequence)) throw new Error(`活動 ${session.id} 的 attendance sequence 重複或缺少 id`)
       sequences.add(event.sequence)
+    }
+    const ownMatches = data.matches.filter((match) => match.sessionId === session.id)
+    const hasAnyCompletionField =
+      session.nextCompletionSequence !== undefined ||
+      ownMatches.some((match) => match.completionSequence !== undefined)
+    if (hasAnyCompletionField) {
+      try {
+        assertValidCompletionChronology(session, ownMatches)
+      } catch (error) {
+        throw new Error(`活動 ${session.id} 的 completion sequence 無效：${(error as Error).message}`)
+      }
     }
   }
   return data

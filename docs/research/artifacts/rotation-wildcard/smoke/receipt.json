@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "runKind": "smoke",
+  "promotionEligible": false,
+  "sha256": {
+    "protocol.json": "8a47f75bda8e07ee88a2ec4bd7c17deabb457a0114e8a46b308d31dee65d04aa",
+    "primary.csv": "24b5cff8da41ffb3a884dbfeb21878b75128ad70d120939c80084d8502625c54",
+    "summary.json": "c3093e763e90bb3a5fae347a6488f0499e7e55c6225b89235250d49c468609ac",
+    "report.md": "164c6b190cb25c17d7abb72fbb7b85f7c67aff0ccdc2dc24eab3b0cff458c05c"
+  }
+}

@@ -77,6 +77,8 @@ export interface Match {
   id: string
   sessionId: string
   at: number
+  /** Session-local rotation chronology; absent only at the raw legacy boundary. */
+  completionSequence?: number
   mode: Mode
   teamA: string[]
   teamB: string[]
@@ -95,6 +97,8 @@ export interface Match {
   excludedFromRating?: boolean
   /** Player -> frozen fairness period ID captured when this match began. */
   fairnessPeriodIds?: Record<string, string>
+  /** Surviving auditable wildcard origin; never used by Rating replay. */
+  rotationWildcard?: RotationWildcardLineageV1
 }
 
 /** 單一場次（一天的活動） */
@@ -102,6 +106,10 @@ export interface Session {
   id: string
   name: string
   startedAt: number
+  /** Next unused completion sequence; absent only at the raw legacy boundary. */
+  nextCompletionSequence?: number
+  /** Forward-only activity wildcard cooldown; legacy active sessions normalize to zero. */
+  rotationWildcardCooldownRemaining?: number
   endedAt?: number
   /** 活動內 rating 重算的固定起點；舊資料遷移前可能缺少 */
   openingRatings?: Record<string, RatingSnapshot>
@@ -134,12 +142,21 @@ export interface AppData {
   baselines: RatingBaseline[]
 }
 
+export interface RotationWildcardLineageV1 {
+  readonly schemaVersion: 1
+  readonly normalPlayingIds: string[]
+  readonly exchangedInId: string
+  readonly exchangedOutId: string
+}
+
 /** 分組結果（純 matchmaking 值，不含賽制） */
 export interface RoundProposal {
   mode: Mode
   teamA: string[]
   teamB: string[]
   resters: string[]
+  /** Optional auditable origin; it has no Rating authority. */
+  rotationWildcard?: RotationWildcardLineageV1
 }
 
 /** 分組加上一份獨立的賽制快照；開打前可換，開打後凍結 */

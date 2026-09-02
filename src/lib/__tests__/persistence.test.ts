@@ -44,6 +44,56 @@ describe('loadPersisted', () => {
     expect(out.status).toBe('ready')
     if (out.status !== 'ready') return
     expect(out.data.matches[0]!.scoringFormat).toEqual({ schemaVersion: 1, kind: 'unknown', reason: 'legacy-missing' })
+    expect(out.data.matches[0]!.completionSequence).toBe(1)
+    expect(out.data.sessions[0]!.nextCompletionSequence).toBe(2)
+  })
+
+  it('same-timestamp legacy rows migrate once by original persisted order', () => {
+    const legacy = JSON.parse(legacyRaw)
+    legacy.matches = [
+      { ...legacy.matches[0], id: 'second-at-tie', at: 20 },
+      { ...legacy.matches[0], id: 'earlier', at: 10 },
+      { ...legacy.matches[0], id: 'third-at-tie', at: 20 },
+    ]
+    const s = storage()
+    s.map.set(STORAGE_KEY, JSON.stringify(legacy))
+    const first = loadPersisted(s)
+    expect(first.status).toBe('ready')
+    if (first.status !== 'ready') return
+    expect(first.data.matches.map((match) => [match.id, match.completionSequence])).toEqual([
+      ['second-at-tie', 2],
+      ['earlier', 1],
+      ['third-at-tie', 3],
+    ])
+    expect(first.data.sessions[0]!.nextCompletionSequence).toBe(4)
+
+    s.map.set(STORAGE_KEY, JSON.stringify(first.data))
+    expect(loadPersisted(s)).toMatchObject({ status: 'ready', migrated: false })
+  })
+
+  it('blocks a partially present completion checkpoint without overwriting raw storage', () => {
+    const corrupted = JSON.parse(legacyRaw)
+    corrupted.matches[0].completionSequence = 1
+    const raw = JSON.stringify(corrupted)
+    const s = storage()
+    s.map.set(STORAGE_KEY, raw)
+
+    expect(loadPersisted(s).status).toBe('blocked')
+    expect(s.map.get(STORAGE_KEY)).toBe(raw)
+  })
+
+  it('preserves the active-session cooldown across reload', () => {
+    const checkpoint = JSON.parse(legacyRaw)
+    checkpoint.sessions[0].active = true
+    checkpoint.sessions[0].nextCompletionSequence = 2
+    checkpoint.sessions[0].rotationWildcardCooldownRemaining = 2
+    checkpoint.matches[0].completionSequence = 1
+    const s = storage()
+    s.map.set(STORAGE_KEY, JSON.stringify(checkpoint))
+
+    const out = loadPersisted(s)
+    expect(out.status).toBe('ready')
+    expect(out.status === 'ready' && out.data.sessions[0]!.rotationWildcardCooldownRemaining).toBe(2)
   })
 
   it('JSON 壞掉時進入 blocked 並保留原始值', () => {

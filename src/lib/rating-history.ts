@@ -45,7 +45,7 @@ export function sessionRatingReport(
     | { at: number; kind: 'baseline'; baseline: RatingBaseline }
   const ordered: SessionEvent[] = [
     ...matches
-      .filter((match) => match.sessionId === session.id && match.at <= endsAt)
+      .filter((match) => match.sessionId === session.id && inSessionWindow(match.at))
       .map((match) => ({ at: match.at, kind: 'match' as const, match })),
     ...overrides
       .filter((override) => inSessionWindow(override.at))

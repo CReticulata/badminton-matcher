@@ -17,6 +17,7 @@ import {
   type GlickoState,
 } from './lib/glicko2'
 import {
+  applyRotationWildcard,
   consecutivePlayCounts,
   generateRound,
   type Candidate,
@@ -34,6 +35,14 @@ import {
 import { cloneScoringFormat, isLegalEndpoint, isStructured } from './lib/scoring-format'
 import { levelToRating } from './lib/level'
 import { projectRotationState } from './lib/rotation-fairness'
+import { allocateCompletionSequence, orderMatchesByCompletionSequence } from './lib/rotation-chronology'
+import { cloneValidatedRotationWildcardLineage, validatedRotationWildcardLineage } from './lib/rotation-wildcard-lineage'
+import { ROTATION_WILDCARD_GENERATION_ENABLED_FOR_THIS_BUILD } from './lib/rotation-wildcard-release'
+import {
+  assertIncrementableCausalTimestamp,
+  assertSafeCausalTimestamp,
+  nextSafeCausalTimestamp,
+} from './lib/causal-time'
 
 const INITIAL_TIERS = [
   '新手階',
@@ -168,10 +177,48 @@ export const ui = reactive<{
 const genId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-function appendAttendance(session: Session, kind: import('./types').AttendanceEvent['kind'], playerId?: string, extra: Partial<import('./types').AttendanceEvent> = {}) {
+function causalSessionTime(session: Session, strictlyAfterCompletedMatches: boolean): number {
+  const hasCompletedMatch = data.matches.some((match) => match.sessionId === session.id)
+  const runtimeFloor = strictlyAfterCompletedMatches && hasCompletedMatch
+    ? nextSafeCausalTimestamp(fairnessEvaluationTime.value, 'fairness runtime')
+    : fairnessEvaluationTime.value
+  return assertSafeCausalTimestamp(Math.max(Date.now(), runtimeFloor), 'trusted fairness runtime')
+}
+
+function recoverySupersessionTime(session: Session): number {
+  const latestPersistedEventAt = (session.attendanceEvents ?? []).reduce(
+    (latest, event) => Math.max(latest, event.at),
+    Number.NEGATIVE_INFINITY,
+  )
+  const eventFloor = Number.isFinite(latestPersistedEventAt)
+    ? nextSafeCausalTimestamp(latestPersistedEventAt, 'persisted attendance')
+    : latestPersistedEventAt
+  const latestPersistedMatchAt = data.matches.reduce(
+    (latest, match) => match.sessionId === session.id ? Math.max(latest, match.at) : latest,
+    Number.NEGATIVE_INFINITY,
+  )
+  const matchFloor = Number.isFinite(latestPersistedMatchAt)
+    ? nextSafeCausalTimestamp(latestPersistedMatchAt, 'persisted match')
+    : latestPersistedMatchAt
+  return Math.max(causalSessionTime(session, true), eventFloor, matchFloor)
+}
+
+function appendAttendance(
+  session: Session,
+  kind: import('./types').AttendanceEvent['kind'],
+  playerId?: string,
+  extra: Partial<import('./types').AttendanceEvent> = {},
+  timing: 'trusted' | 'recovery' = 'trusted',
+) {
   const events = session.attendanceEvents ?? (session.attendanceEvents = [])
   const sequence = events.reduce((max, event) => Math.max(max, event.sequence), -1) + 1
-  const at = Date.now()
+  // Attendance after a completed match must sort strictly after that match even
+  // when both actions happen inside one wall-clock millisecond. Recovery uses
+  // this causal boundary to exclude corrupted prefix lineage without weakening
+  // fail-closed validation for post-boundary matches.
+  const at = timing === 'recovery'
+    ? recoverySupersessionTime(session)
+    : causalSessionTime(session, true)
   events.push({ id: genId(), sessionId: session.id, kind, playerId, at, sequence, ...extra })
   fairnessEvaluationTime.value = at
 }
@@ -188,7 +235,7 @@ function resolveQueuedResets(session: Session, liveMatchId: string | undefined) 
     appendAttendance(session, 'fairness-recovery-boundary', undefined, {
       presentIds: [...session.presentIds],
       volunteerRestIds: [...session.volunteerRest],
-    })
+    }, 'recovery')
     for (const playerId of session.presentIds) appendAttendance(session, 'fairness-period-started', playerId)
     return
   }
@@ -233,7 +280,7 @@ export function repairFairness(): boolean {
   appendAttendance(session, 'fairness-recovery-boundary', undefined, {
     presentIds: [...session.presentIds],
     volunteerRestIds: [...session.volunteerRest],
-  })
+  }, 'recovery')
   for (const playerId of session.presentIds) appendAttendance(session, 'fairness-period-started', playerId)
   clearPendingForEligibility()
   refreshFairnessNow()
@@ -260,11 +307,41 @@ const currentSessionMatches = computed(() => {
 })
 
 /** A UI-owned minute tick refreshes this derived view; elapsed time is never persisted. */
-export const fairnessEvaluationTime = ref(Date.now())
-export function refreshFairnessNow() { fairnessEvaluationTime.value = Date.now() }
+export const fairnessEvaluationTime = ref(
+  assertIncrementableCausalTimestamp(Date.now(), 'initial fairness runtime'),
+)
+export function refreshFairnessNow() {
+  const current = assertIncrementableCausalTimestamp(fairnessEvaluationTime.value, 'current fairness runtime')
+  const wallClock = assertIncrementableCausalTimestamp(Date.now(), 'fairness refresh')
+  fairnessEvaluationTime.value = Math.max(current, wallClock)
+}
 export const fairnessProjection = computed(() => {
   const session = currentSession.value
   return session ? projectRotationState(session, session.attendanceEvents ?? [], currentSessionMatches.value, fairnessEvaluationTime.value) : null
+})
+
+export type RotationWildcardState =
+  | { status: 'inactive'; remaining: 0 }
+  | { status: 'ready'; remaining: 0 }
+  | { status: 'cooldown'; remaining: 1 | 2 }
+  | { status: 'paused'; reason: 'fairness-degraded'; detail: string; remaining: 0 | 1 | 2 }
+
+export const rotationWildcardState = computed<RotationWildcardState>(() => {
+  const session = currentSession.value
+  if (!session) return { status: 'inactive', remaining: 0 }
+  const remaining = Math.max(0, Math.min(2, session.rotationWildcardCooldownRemaining ?? 0)) as 0 | 1 | 2
+  const projection = fairnessProjection.value
+  if (projection?.status === 'degraded') {
+    return {
+      status: 'paused',
+      reason: 'fairness-degraded',
+      detail: projection.reason,
+      remaining,
+    }
+  }
+  return remaining === 0
+    ? { status: 'ready', remaining: 0 }
+    : { status: 'cooldown', remaining }
 })
 
 export const ratingReportsBySession = computed(() => {
@@ -386,11 +463,11 @@ export const removePlayer = archivePlayer
 
 export function startSession(presentIds: string[], defaultScoringFormat: ScoringFormatSnapshot) {
   if (isBlocked()) return
+  const startedAt = assertIncrementableCausalTimestamp(Date.now(), 'session start')
+  const now = new Date(startedAt)
   // Replacing an active activity is also a live-match cancellation boundary.
   if (currentSession.value) endSession()
   for (const s of data.sessions) s.active = false
-  const now = new Date()
-  const startedAt = Date.now()
   const id = genId()
   const attendanceEvents = presentIds.flatMap((playerId, index) => [
     { id: genId(), sessionId: id, kind: 'join' as const, playerId, at: startedAt, sequence: index * 2 },
@@ -400,6 +477,8 @@ export function startSession(presentIds: string[], defaultScoringFormat: Scoring
     id,
     name: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} 場次`,
     startedAt,
+    nextCompletionSequence: 1,
+    rotationWildcardCooldownRemaining: 0,
     openingRatings: Object.fromEntries(
       data.players.map((player) => [
         player.id,
@@ -438,13 +517,22 @@ export function setPendingScoringFormat(snapshot: ScoringFormatSnapshot) {
 
 export function endSession() {
   if (isBlocked()) return
+  const s = currentSession.value
+  if (!s) {
+    cancelLiveMatch()
+    ui.pending = null
+    ui.scoring = false
+    return
+  }
+  const endedAt = causalSessionTime(s, false)
+  if (endedAt < s.startedAt) throw new Error('Session end cannot precede its start')
+  if (data.matches.some((match) => match.sessionId === s.id && match.at > endedAt)) {
+    throw new Error('Session end cannot precede a persisted completed match')
+  }
   // Ending is a cancellation boundary for a recoverable live match.
   cancelLiveMatch()
-  const s = currentSession.value
-  if (s) {
-    s.active = false
-    s.endedAt = Date.now()
-  }
+  s.active = false
+  s.endedAt = endedAt
   ui.pending = null
   ui.scoring = false
 }
@@ -496,7 +584,12 @@ function candidates(): Candidate[] {
   const s = currentSession.value
   if (!s) return []
   const stats = sessionStats.value
-  const projection = projectRotationState(s, s.attendanceEvents ?? [], currentSessionMatches.value, Date.now())
+  const projection = projectRotationState(
+    s,
+    s.attendanceEvents ?? [],
+    currentSessionMatches.value,
+    causalSessionTime(s, false),
+  )
   const projected = projection.status === 'valid' ? projection.participantStates : undefined
   const consecutiveCounts = consecutivePlayCounts(currentSessionMatches.value)
   if (projected) {
@@ -531,8 +624,37 @@ export function proposeRound(): boolean {
   if (isBlocked()) return false
   const session = currentSession.value
   if (!session) return false
-  const proposal: RoundProposal | null = generateRound(candidates(), ui.mode)
-  if (!proposal) return false
+  const roster = candidates()
+  const normalProposal: RoundProposal | null = generateRound(roster, ui.mode)
+  if (!normalProposal) return false
+  const projection = projectRotationState(
+    session,
+    session.attendanceEvents ?? [],
+    currentSessionMatches.value,
+    causalSessionTime(session, false),
+  )
+  const completedPlayingSets = currentSessionMatches.value.length === 0
+    ? []
+    : orderMatchesByCompletionSequence(currentSessionMatches.value, session.id)
+      .map((match) => [...match.teamA, ...match.teamB])
+  const proposal = ROTATION_WILDCARD_GENERATION_ENABLED_FOR_THIS_BUILD
+    ? (() => {
+      const productionReleaseMarker = 'rotation-wildcard-generation-release-v1'
+      const proposal = applyRotationWildcard({
+        normalProposal,
+        candidates: roster,
+        completedPlayingSets,
+        cooldownRemaining: session.rotationWildcardCooldownRemaining ?? 0,
+        fairnessReliable: projection.status === 'valid',
+        rng: Math.random,
+      })
+      Object.defineProperty(proposal, Symbol.for(productionReleaseMarker), {
+        value: true,
+        enumerable: false,
+      })
+      return proposal
+    })()
+    : normalProposal
   ui.pending = { ...proposal, scoringFormat: cloneScoringFormat(session.defaultScoringFormat) }
   return true
 }
@@ -556,6 +678,9 @@ export function swapInPending(idA: string, idB: string) {
   const tmp = a.list[a.i]!
   a.list[a.i] = b.list[b.i]!
   b.list[b.i] = tmp
+  if (p.rotationWildcard && !validatedRotationWildcardLineage(p)) {
+    delete p.rotationWildcard
+  }
 }
 
 /** 開打：把選定的賽制凍結進 live context，此後不可更換 */
@@ -563,18 +688,29 @@ export function startMatch() {
   if (isBlocked()) return
   if (!ui.pending) return
   const session = currentSession.value
-  const projection = session ? projectRotationState(session, session.attendanceEvents ?? [], currentSessionMatches.value, Date.now()) : null
+  if (!session) return
+  const projection = projectRotationState(
+    session,
+    session.attendanceEvents ?? [],
+    currentSessionMatches.value,
+    causalSessionTime(session, false),
+  )
   const ids = projection?.status === 'valid'
     ? Object.fromEntries([...ui.pending.teamA, ...ui.pending.teamB].flatMap((id) => projection.participantStates[id]?.periodId ? [[id, projection.participantStates[id]!.periodId!]] : []))
     : undefined
+  const rotationWildcard = cloneValidatedRotationWildcardLineage(ui.pending)
+  const { rotationWildcard: _unvalidated, ...pending } = ui.pending
+  const startedAt = causalSessionTime(session, false)
+  fairnessEvaluationTime.value = Math.max(fairnessEvaluationTime.value, startedAt)
   ui.live = {
-    ...ui.pending,
+    ...pending,
     liveMatchId: genId(),
-    startedAt: Date.now(),
+    startedAt,
     scoringFormat: cloneScoringFormat(ui.pending.scoringFormat),
     fairnessPeriodIds: ids,
+    ...(rotationWildcard ? { rotationWildcard } : {}),
   }
-  session!.liveMatch = ui.live
+  session.liveMatch = ui.live
   ui.pending = null
 }
 
@@ -649,11 +785,17 @@ export function submitScore(
   const formatError = validateEndpoint(live.scoringFormat, scoreA, scoreB, options)
   if (formatError) return formatError
   const excluded = needsExclusion(live.scoringFormat, scoreA, scoreB)
+  const rotationWildcard = cloneValidatedRotationWildcardLineage(live)
+  const causalCompletionAt = causalSessionTime(sess, false)
+  const completedAt = live.startedAt === undefined
+    ? causalCompletionAt
+    : Math.max(causalCompletionAt, live.startedAt)
 
   const match: Match = {
     id: genId(),
     sessionId: sess.id,
-    at: Date.now(),
+    at: completedAt,
+    completionSequence: allocateCompletionSequence(sess),
     mode: live.mode,
     teamA: [...live.teamA],
     teamB: [...live.teamB],
@@ -662,9 +804,11 @@ export function submitScore(
     resters: [...live.resters],
     scoringFormat: cloneScoringFormat(live.scoringFormat),
     fairnessPeriodIds: live.fairnessPeriodIds,
+    ...(rotationWildcard ? { rotationWildcard } : {}),
   }
   if (excluded) match.excludedFromRating = true
   data.matches.push(match)
+  fairnessEvaluationTime.value = Math.max(fairnessEvaluationTime.value, completedAt)
 
   // 即時 Glicko-2 更新（一場＝一個 rating period）；不計入強度者跳過
   if (countsForRating(match)) {
@@ -678,6 +822,26 @@ export function submitScore(
         p.rd = s.rd
         p.vol = s.vol
       }
+    }
+  }
+
+  // Cooldown is an independent forward-only completion transition. A valid wildcard
+  // completion starts it even if fairness degraded after match start; ordinary
+  // completions decrement only while the existing fairness replay is reliable.
+  if (rotationWildcard) {
+    sess.rotationWildcardCooldownRemaining = 2
+  } else {
+    const projection = projectRotationState(
+      sess,
+      sess.attendanceEvents ?? [],
+      currentSessionMatches.value,
+      completedAt,
+    )
+    if (
+      projection.status === 'valid' &&
+      (sess.rotationWildcardCooldownRemaining ?? 0) > 0
+    ) {
+      sess.rotationWildcardCooldownRemaining!--
     }
   }
 
@@ -851,14 +1015,33 @@ export function downloadCsvBackup() {
  * 解析與正規化全部成功後才取代資料——失敗時目前資料與 blocked 狀態都不動。
  * 這也是復原流程的還原路徑：成功後才解除封鎖並重新啟用自動儲存。
  */
+export interface CsvCheckpointPreview {
+  activeSessionName?: string
+  activeCooldownRemaining?: number
+  nextCompletionSequence?: number
+}
+
+/** Parse and fully validate a CSV checkpoint without mutating current state. */
+export function inspectCsvText(text: string): CsvCheckpointPreview {
+  const imported = migrateAppData(normalizeAppData(importCsv(text)))
+  const active = imported.sessions.find((session) => session.active)
+  return active ? {
+    activeSessionName: active.name,
+    activeCooldownRemaining: active.rotationWildcardCooldownRemaining ?? 0,
+    nextCompletionSequence: active.nextCompletionSequence,
+  } : {}
+}
+
 export function importCsvText(text: string) {
   const parsed = migrateAppData(normalizeAppData(importCsv(text)))
+  const importedRuntime = assertIncrementableCausalTimestamp(Date.now(), 'CSV import fairness runtime')
   const blocked = recoveryState.value.status === 'blocked' ? recoveryState.value.raw : null
   data.players = parsed.players as typeof data.players
   data.sessions = parsed.sessions as typeof data.sessions
   data.matches = parsed.matches as typeof data.matches
   data.overrides = parsed.overrides as typeof data.overrides
   data.baselines = parsed.baselines as typeof data.baselines
+  fairnessEvaluationTime.value = importedRuntime
   ui.pending = null
   ui.live = parsed.sessions.find((session) => session.active)?.liveMatch ?? null
   ui.scoring = false

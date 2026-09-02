@@ -1,13 +1,17 @@
 import type { AppData, RatingSnapshot } from '../types'
 import { DEFAULT_RD, DEFAULT_VOL, recalcAll } from './glicko2'
+import { migrateLegacyCompletionChronology } from './rotation-chronology'
+import { assertIncrementableCausalTimestamp } from './causal-time'
 
 const unique = (ids: readonly string[]) => [...new Set(ids)]
 
 /** 一次性補齊舊活動資料；既有固定快照絕不覆寫。 */
 export function migrateAppData(data: AppData, migrationTime = Date.now()): AppData {
+  const safeMigrationTime = assertIncrementableCausalTimestamp(migrationTime, 'migration')
   const playersById = new Map(data.players.map((player) => [player.id, player]))
 
   for (const session of [...data.sessions].sort((a, b) => a.startedAt - b.startedAt)) {
+    migrateLegacyCompletionChronology(session, data.matches)
     const sessionMatches = data.matches
       .filter((match) => match.sessionId === session.id)
       .sort((a, b) => a.at - b.at)
@@ -40,8 +44,8 @@ export function migrateAppData(data: AppData, migrationTime = Date.now()): AppDa
       session.presentIds = presentIds
       session.volunteerRest = volunteerRestIds
       session.attendanceEvents = [
-        { id: boundaryId, sessionId: session.id, kind: 'fairness-recovery-boundary', at: migrationTime, sequence: 0, presentIds, volunteerRestIds },
-        ...presentIds.map((playerId, index) => ({ id: `${boundaryId}-${playerId}`, sessionId: session.id, kind: 'fairness-period-started' as const, playerId, at: migrationTime, sequence: index + 1 })),
+        { id: boundaryId, sessionId: session.id, kind: 'fairness-recovery-boundary', at: safeMigrationTime, sequence: 0, presentIds, volunteerRestIds },
+        ...presentIds.map((playerId, index) => ({ id: `${boundaryId}-${playerId}`, sessionId: session.id, kind: 'fairness-period-started' as const, playerId, at: safeMigrationTime, sequence: index + 1 })),
       ]
     }
 

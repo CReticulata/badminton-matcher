@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runKind": "representative",
+  "promotionEvidenceEligible": true,
+  "productionChangeAuthorized": false,
+  "artifactsSha256": {
+    "protocol.json": "4cc43dc5deab29fa75c07f1687f4c6dc0a49c42da3842a38dae7e71d8705d5d9",
+    "primary.csv": "e6f9e7fde12a8a565b03c25e7f554e6b0ed345a70bfaf714971a14d3cc8e3cac",
+    "summary.json": "f34bce0ed38430fdc60eb58b8c7fef316d3548f6075978f207e0139dd4771b44",
+    "report.md": "877f11c0a4cf0b64a18054e478be75f72a9d1c25e9d478dc7c2ea6ab22187b8c"
+  },
+  "source": {
+    "files": [
+      "package.json",
+      "pnpm-lock.yaml",
+      "src/types.ts",
+      "src/lib/matchmaking.ts",
+      "docs/research/scripts/rotation-wildcard-simulation/protocol.ts",
+      "docs/research/scripts/rotation-wildcard-simulation/manifest.ts",
+      "docs/research/scripts/rotation-wildcard-simulation/evaluator.ts",
+      "docs/research/scripts/rotation-wildcard-simulation/representative.ts"
+    ],
+    "sha256": "6cc29748ab02c6bc5a649d8544fd854a7df05116f6df9b9eb4f0078e650dae55"
+  },
+  "excludedRuntimeMetadata": [
+    "runtime-metadata.json"
+  ]
+}

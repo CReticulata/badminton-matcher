@@ -6,6 +6,7 @@ import {
   consecutivePlayCounts,
   generateRound,
   rateLayers,
+  splitFixedPlayingSet,
   type Candidate,
 } from '../matchmaking'
 import { createUnknownSnapshot } from '../scoring-format'
@@ -41,10 +42,12 @@ const completedMatch = (
   sessionId: string,
   at: number,
   playing: [string, string, string, string],
+  completionSequence = at,
 ): Match => ({
   id,
   sessionId,
   at,
+  completionSequence,
   mode: 'doubles',
   teamA: playing.slice(0, 2),
   teamB: playing.slice(2),
@@ -75,6 +78,7 @@ describe('consecutivePlayCounts', () => {
       id: 'm2',
       sessionId: 'session-a',
       at: 2,
+      completionSequence: 2,
       mode: 'singles',
       teamA: ['a'],
       teamB: ['b'],
@@ -98,7 +102,7 @@ describe('consecutivePlayCounts', () => {
   it('時間相同時以較後記錄者視為較新一場', () => {
     const counts = consecutivePlayCounts([
       completedMatch('m1', 'session-a', 1, ['a', 'b', 'c', 'd']),
-      completedMatch('m2', 'session-a', 1, ['a', 'b', 'd', 'e']),
+      completedMatch('m2', 'session-a', 1, ['a', 'b', 'd', 'e'], 2),
     ])
 
     expect(counts.get('a')).toBe(2)
@@ -277,6 +281,33 @@ describe('time-normalized fairness layers', () => {
     expect(layers.get('c')).toBe(1)
   })
 
+  it('accepts an explicit fixed band while preserving the 0.5 default', () => {
+    const candidates = [rated('a', 1.0), rated('b', 1.4), rated('c', 1.8)]
+
+    expect(rateLayers(candidates)).toEqual(rateLayers(candidates, 0.5))
+    expect([...rateLayers(candidates, 0).entries()]).toEqual([
+      ['a', 0],
+      ['b', 1],
+      ['c', 2],
+    ])
+    expect([...rateLayers(candidates, 1).values()]).toEqual([0, 0, 0])
+  })
+
+  it('keeps production proposal behavior pinned to the default 0.5 band', () => {
+    const candidates = [
+      rated('a', 1.0, 1000),
+      rated('b', 1.2, 1200),
+      rated('c', 1.4, 1400),
+      rated('d', 1.5, 1600),
+      rated('e', 1.6, 1500),
+    ]
+
+    const implicit = generateRound(candidates, 'doubles', seededRng(91))
+    const explicit = generateRound(candidates, 'doubles', seededRng(91), undefined, 0.5)
+
+    expect(implicit).toEqual(explicit)
+  })
+
   it('never lets Rating override a stricter rate layer', () => {
     const out = generateRound([
       rated('a', 1, 1000), rated('b', 1, 1000), rated('c', 1, 2000), rated('d', 1, 2000),
@@ -317,6 +348,46 @@ describe('balanceTeams（強度平衡）', () => {
     expect(teamOf('a')).toBe(teamOf('d'))
     expect(teamOf('b')).toBe(teamOf('c'))
     expect(teamOf('a')).not.toBe(teamOf('b'))
+  })
+})
+
+describe('splitFixedPlayingSet', () => {
+  const fixed = [
+    mk('a', 0, 1000),
+    mk('b', 0, 1010),
+    mk('c', 0, 1100),
+    mk('d', 0, 1110),
+  ]
+
+  it('samples only doubles splits within best + 25 and never changes the set', () => {
+    const seen = new Set<string>()
+    for (const draw of [0, 0.2, 0.8, 0.999999]) {
+      const out = splitFixedPlayingSet(fixed, 'doubles', () => draw)
+      const playingIds = [...out.teamA, ...out.teamB].sort()
+      const ratings = Object.fromEntries(fixed.map((candidate) => [candidate.id, candidate.rating]))
+      const sum = (ids: string[]) => ids.reduce((total, id) => total + ratings[id]!, 0)
+      const gap = Math.abs(sum(out.teamA) - sum(out.teamB))
+
+      expect(playingIds).toEqual(['a', 'b', 'c', 'd'])
+      expect(gap).toBeLessThanOrEqual(25)
+      seen.add([...out.teamA].sort().join(','))
+    }
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('is seeded and supports a fixed singles set', () => {
+    const a = splitFixedPlayingSet(fixed, 'doubles', seededRng(77))
+    const b = splitFixedPlayingSet(fixed, 'doubles', seededRng(77))
+    expect(a).toEqual(b)
+
+    const singles = splitFixedPlayingSet(
+      [mk('left', 0, 1200), mk('right', 0, 1800)],
+      'singles',
+      seededRng(9),
+    )
+    expect([...singles.teamA, ...singles.teamB].sort()).toEqual(['left', 'right'])
+    expect(singles.teamA).toHaveLength(1)
+    expect(singles.teamB).toHaveLength(1)
   })
 })
 

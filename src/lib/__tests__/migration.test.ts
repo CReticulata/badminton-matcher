@@ -25,6 +25,25 @@ const oldData = (): AppData => ({
 })
 
 describe('migrateAppData', () => {
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1])(
+    'rejects unsafe migration time %s before mutating legacy data',
+    (migrationTime) => {
+      const data = oldData()
+      const before = structuredClone(data)
+      expect(() => migrateAppData(data, migrationTime)).toThrow(/timestamp/i)
+      expect(data).toEqual(before)
+    },
+  )
+
+  it('accepts the final migration time whose strict successor remains valid', () => {
+    const data = oldData()
+    data.sessions[0]!.active = true
+    data.sessions[0]!.attendanceEvents = []
+    const migrationTime = Number.MAX_SAFE_INTEGER - 2
+    const migrated = migrateAppData(data, migrationTime)
+    expect(migrated.sessions[0]!.attendanceEvents?.[0]?.at).toBe(migrationTime)
+  })
+
   it('替舊活動補齊開場狀態、參賽順序與活動中新增標記', () => {
     const migrated = migrateAppData(oldData())
     const session = migrated.sessions[0]!
@@ -63,7 +82,32 @@ describe('migrateAppData', () => {
       { kind: 'fairness-period-started', playerId: 'a', at: 0 },
     ])
     expect(migrateAppData(first, 9999).sessions[0]!.attendanceEvents).toEqual(events)
-    expect(first.matches).toEqual(oldData().matches)
+    expect(first.matches).toEqual([
+      { ...oldData().matches[0]!, completionSequence: 1 },
+    ])
+    expect(first.sessions[0]!.nextCompletionSequence).toBe(2)
+  })
+
+  it('migrates legacy completion chronology by at then original row order and never reassigns it', () => {
+    const data = oldData()
+    const first = { ...data.matches[0]!, id: 'first', at: 200 }
+    const sameTimeSecond = { ...data.matches[0]!, id: 'second', at: 200 }
+    const earlier = { ...data.matches[0]!, id: 'earlier', at: 100 }
+    data.matches = [sameTimeSecond, earlier, first]
+
+    const migrated = migrateAppData(data)
+    expect(
+      Object.fromEntries(migrated.matches.map((match) => [match.id, match.completionSequence])),
+    ).toEqual({ second: 2, earlier: 1, first: 3 })
+    expect(migrated.sessions[0]!.nextCompletionSequence).toBe(4)
+
+    const reordered = { ...migrated, matches: [migrated.matches[2]!, migrated.matches[0]!, migrated.matches[1]!] }
+    expect(migrateAppData(reordered).matches.map((match) => [match.id, match.completionSequence])).toEqual([
+      ['first', 3],
+      ['second', 2],
+      ['earlier', 1],
+    ])
+    expect(reordered.sessions[0]!.nextCompletionSequence).toBe(4)
   })
 
   it('leaves ended fairness-free data byte-semantically unchanged while preserving active Rating authority', () => {
@@ -74,15 +118,24 @@ describe('migrateAppData', () => {
     const original = JSON.parse(JSON.stringify(ended))
     const migratedEnded = migrateAppData(ended, 0)
     expect(migratedEnded.sessions[0]!.attendanceEvents).toBeUndefined()
-    expect(migratedEnded.matches).toEqual(original.matches)
+    expect(migratedEnded.matches).toEqual([
+      { ...original.matches[0], completionSequence: 1 },
+    ])
+    expect(migratedEnded.sessions[0]!.nextCompletionSequence).toBe(2)
     expect(migratedEnded.sessions[0]!.openingRatings).toEqual(original.sessions[0].openingRatings)
 
     const active = oldData()
     active.sessions[0]!.active = true
     active.sessions[0]!.presentIds = ['a']
     active.sessions[0]!.attendanceEvents = []
-    const beforeRatingBytes = JSON.stringify({ players: active.players, matches: active.matches, overrides: active.overrides, baselines: active.baselines })
+    const ratingAuthorityBytes = (value: AppData) => JSON.stringify({
+      players: value.players,
+      matches: value.matches.map(({ completionSequence: _rotationOnly, ...match }) => match),
+      overrides: value.overrides,
+      baselines: value.baselines,
+    })
+    const beforeRatingBytes = ratingAuthorityBytes(active)
     const migratedActive = migrateAppData(active, 0)
-    expect(JSON.stringify({ players: migratedActive.players, matches: migratedActive.matches, overrides: migratedActive.overrides, baselines: migratedActive.baselines })).toBe(beforeRatingBytes)
+    expect(ratingAuthorityBytes(migratedActive)).toBe(beforeRatingBytes)
   })
 })
