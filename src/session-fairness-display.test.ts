@@ -42,7 +42,7 @@ describe('active-session fairness display', () => {
     expect(html).not.toContain('上場率')
   })
 
-  it('keeps queued fairness reset reachable from the live-match overlay', async () => {
+  it('omits fairness-reset controls from the live-match overlay', async () => {
     const players = ['A', 'B'].map((name) => store.addPlayer(name, 1500))
     store.startSession(players.map((player) => player.id), TEST_FORMAT)
     store.ui.live = {
@@ -52,8 +52,10 @@ describe('active-session fairness display', () => {
     }
 
     const html = await renderToString(createSSRApp(MatchDisplay))
-    expect(html).toContain('賽後重置')
-    expect(html).toContain('重置 A')
-    expect(html).toContain('重置 B')
+    expect(html).not.toContain('賽後重置')
+    expect(html).not.toContain('重置 A')
+    expect(html).not.toContain('重置 B')
+    expect(html).toContain('取消')
+    expect(html).toContain('結束比賽')
   })
 })
