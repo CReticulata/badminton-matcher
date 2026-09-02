@@ -1,0 +1,17 @@
+candidateBand,cellId,seed,method,eligibleOpportunities,noCapacityControls,actualRepeatCount,triggerRepeatCount,maxAppearanceShortfallVsA,maxNonVoluntaryRestIncreaseVsA,fixedRatingsDigest
+1,doubles:8:late-join:variable:continuous,rw51-representative-0000,A,10,0,5,5,0,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0000,B,10,0,7,7,1,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0000,C,10,0,5,5,0,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0000,D,10,0,5,6,1,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0001,A,10,0,5,5,0,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0001,B,10,0,7,7,1,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0001,C,10,0,5,5,0,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,doubles:8:late-join:variable:continuous,rw51-representative-0001,D,10,0,7,7,1,0,1b5ced8c9a2cf1073d0934bab61e3fbaba1122fcdf08a68cb682fb0613559e2f
+1,singles:7:late-join:variable:extreme,rw51-representative-0000,A,10,0,0,0,0,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0000,B,10,0,0,0,1,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0000,C,10,0,0,0,0,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0000,D,10,0,0,0,1,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0001,A,10,0,2,2,0,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0001,B,10,0,2,2,1,1,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0001,C,10,0,2,2,0,0,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9
+1,singles:7:late-join:variable:extreme,rw51-representative-0001,D,10,0,2,2,1,1,d63ddb9ec44ea80a4b7a904c0d1bb0300c51a7c54f578c2f963d32c0cf9f1aa9

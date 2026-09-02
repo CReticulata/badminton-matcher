@@ -9,6 +9,7 @@ import {
   archivedPlayers,
   archivePlayer,
   cancelLiveMatch,
+  cancelPending,
   clearAllHistory,
   clearSession,
   data,
@@ -16,15 +17,19 @@ import {
   editMatchScore,
   endSession,
   exportCsvText,
+  fairnessEvaluationTime,
+  fairnessProjection,
   importCsvText,
   joinSession,
   leaveSession,
   overrideRating,
   proposeRound,
+  repairFairness,
   resetFairnessPeriod,
   refreshFairnessNow,
   ratingReportsBySession,
   restorePlayer,
+  rotationWildcardState,
   startMatch,
   startSession,
   submitScore,
@@ -33,7 +38,7 @@ import {
   ui,
 } from './store'
 import { recalcAll } from './lib/glicko2'
-import { createUnknownSnapshot } from './lib/scoring-format'
+import { createCatalogSnapshot, createUnknownSnapshot } from './lib/scoring-format'
 
 /** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
 const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
@@ -58,6 +63,33 @@ afterEach(() => {
 })
 
 describe('活動 rating 邊界', () => {
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1])(
+    '拒絕不可建立後繼tick的活動開始時間 %s，且不變更既有活動',
+    (unsafeNow) => {
+      const player = addPlayer('小明', 1500)
+      const before = JSON.stringify(data.sessions)
+      vi.spyOn(Date, 'now').mockReturnValue(unsafeNow)
+
+      expect(() => startSession([player.id], TEST_FORMAT)).toThrow(/timestamp/i)
+      expect(JSON.stringify(data.sessions)).toBe(before)
+    },
+  )
+
+  it('拒絕非法 refresh／CSV runtime clock，且不改變tick或checkpoint', () => {
+    const player = addPlayer('小明', 1500)
+    startSession([player.id], TEST_FORMAT)
+    const csv = exportCsvText()
+    const beforeData = JSON.stringify(data)
+    const beforeTick = fairnessEvaluationTime.value
+    vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER - 1)
+
+    expect(() => refreshFairnessNow()).toThrow(/timestamp/i)
+    expect(fairnessEvaluationTime.value).toBe(beforeTick)
+    expect(() => importCsvText(csv)).toThrow(/timestamp/i)
+    expect(JSON.stringify(data)).toBe(beforeData)
+    expect(fairnessEvaluationTime.value).toBe(beforeTick)
+  })
+
   it('開始活動時保存所有既有球員狀態，並固定首次加入順序與結束時間', () => {
     const p1 = addPlayer('小明', 1500)
     const p2 = addPlayer('阿華', 1700)
@@ -88,6 +120,29 @@ describe('活動 rating 邊界', () => {
     endSession()
     expect(session.active).toBe(false)
     expect(session.endedAt).toEqual(expect.any(Number))
+  })
+
+  it('系統時鐘在完成比賽後回撥時，活動結束仍涵蓋該比賽', () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const p1 = addPlayer('小明', 1500)
+    const p2 = addPlayer('阿華', 1500)
+    startSession([p1.id, p2.id], TEST_FORMAT)
+    const session = data.sessions[0]!
+
+    now = 2_000
+    ui.live = {
+      mode: 'singles', teamA: [p1.id], teamB: [p2.id], resters: [],
+      scoringFormat: TEST_FORMAT, startedAt: now,
+    }
+    expect(submitScore(21, 10)).toBeNull()
+    const completed = data.matches[0]!
+
+    now = 500
+    endSession()
+    expect(session.endedAt).toBe(2_000)
+    expect(session.endedAt).toBeGreaterThanOrEqual(completed.at)
+    expect(ratingReportsBySession.value.get(session.id)?.matchChanges.has(completed.id)).toBe(true)
   })
 
   it('活動進行中禁止手動覆寫 rating', () => {
@@ -196,6 +251,7 @@ describe('proposeRound 連續上場優先級', () => {
         id: `m${restIndex + 1}`,
         sessionId,
         at: restIndex + 1,
+        completionSequence: restIndex + 1,
         mode: 'doubles',
         teamA: playing.slice(0, 2).map((player) => player.id),
         teamB: playing.slice(2).map((player) => player.id),
@@ -205,6 +261,7 @@ describe('proposeRound 連續上場優先級', () => {
         scoringFormat: TEST_FORMAT,
       })
     }
+    data.sessions[0]!.nextCompletionSequence = players.length + 1
     data.matches.push({
       id: 'other-session-match',
       sessionId: 'other-session',
@@ -284,10 +341,11 @@ describe('clearSession / clearAllHistory', () => {
     const p3 = addPlayer('阿強', 1500)
     startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const sessionId = data.sessions[0]!.id
+    const firstSessionAt = data.sessions[0]!.startedAt
     data.matches.push({
       id: 'm1',
       sessionId,
-      at: 1000,
+      at: firstSessionAt,
       mode: 'doubles',
       teamA: [p1.id],
       teamB: [p2.id],
@@ -298,10 +356,11 @@ describe('clearSession / clearAllHistory', () => {
     // 另一場不受影響的比賽（別的場次）
     startSession([p1.id, p2.id, p3.id], TEST_FORMAT)
     const otherSessionId = data.sessions[1]!.id
+    const otherSessionAt = data.sessions[1]!.startedAt
     data.matches.push({
       id: 'm2',
       sessionId: otherSessionId,
-      at: 2000,
+      at: otherSessionAt,
       mode: 'doubles',
       teamA: [p1.id],
       teamB: [p3.id],
@@ -662,5 +721,407 @@ describe('fairness live lineage', () => {
     deleteMatch(matchId)
     expect(data.matches).toHaveLength(0)
     expect(session.attendanceEvents?.map((event) => event.sequence)).toEqual([...Array(14).keys()])
+  })
+
+  it('allocates completion sequence from a persisted high-water mark without timestamp ties or gap reuse', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    const a = addPlayer('A', 1500)
+    const b = addPlayer('B', 1500)
+    startSession([a.id, b.id], TEST_FORMAT)
+    const session = data.sessions[0]!
+    expect(session.nextCompletionSequence).toBe(1)
+
+    const complete = () => {
+      ui.live = {
+        mode: 'singles',
+        teamA: [a.id],
+        teamB: [b.id],
+        resters: [],
+        scoringFormat: TEST_FORMAT,
+      }
+      expect(submitScore(21, 10)).toBeNull()
+    }
+
+    complete()
+    complete()
+    expect(data.matches.map((match) => match.completionSequence)).toEqual([1, 2])
+    expect(data.matches.map((match) => match.at)).toEqual([10_000, 10_000])
+    expect(session.nextCompletionSequence).toBe(3)
+
+    const firstId = data.matches[0]!.id
+    expect(editMatchScore(firstId, 10, 21)).toBeNull()
+    expect(data.matches[0]!.completionSequence).toBe(1)
+    deleteMatch(data.matches[1]!.id)
+    expect(session.nextCompletionSequence).toBe(3)
+
+    complete()
+    expect(data.matches.map((match) => match.completionSequence)).toEqual([1, 3])
+    expect(session.nextCompletionSequence).toBe(4)
+  })
+})
+
+describe('rotation wildcard store lineage', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f'] as const
+
+  function startPlayers(present: readonly (typeof ids)[number][] = ids) {
+    const players = Object.fromEntries(ids.map((id) => [id, addPlayer(id, 1500)]))
+    startSession(present.map((id) => players[id].id), TEST_FORMAT)
+    return players
+  }
+
+  function setPendingLineage(players: ReturnType<typeof startPlayers>) {
+    const id = (key: typeof ids[number]) => players[key].id
+    ui.pending = {
+      mode: 'doubles',
+      teamA: [id('b'), id('c')],
+      teamB: [id('d'), id('e')],
+      resters: [id('a'), id('f')],
+      scoringFormat: TEST_FORMAT,
+      rotationWildcard: {
+        schemaVersion: 1,
+        normalPlayingIds: [id('a'), id('b'), id('c'), id('d')].sort(),
+        exchangedOutId: id('a'),
+        exchangedInId: id('e'),
+      },
+    }
+  }
+
+  it('attaches proposal lineage from completion chronology in reliable fairness', () => {
+    let now = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const players = startPlayers(['a', 'b', 'c', 'd'])
+    const session = data.sessions[0]!
+    now = 3_599_000
+    joinSession(players.e.id)
+    now = 3_600_100
+
+    const period = (playerId: string) => session.attendanceEvents!
+      .filter((event) => event.playerId === playerId && event.kind === 'fairness-period-started')
+      .at(-1)!.id
+    const makeMatch = (
+      id: string,
+      sequence: number,
+      at: number,
+      playing: string[],
+      resters: string[],
+    ) => ({
+      id,
+      sessionId: session.id,
+      at,
+      completionSequence: sequence,
+      mode: 'doubles' as const,
+      teamA: playing.slice(0, 2),
+      teamB: playing.slice(2),
+      scoreA: 21,
+      scoreB: 10,
+      resters,
+      scoringFormat: TEST_FORMAT,
+      fairnessPeriodIds: Object.fromEntries(playing.map((playerId) => [playerId, period(playerId)])),
+    })
+    data.matches.push(
+      makeMatch('m1', 1, 1_000, [players.a.id, players.b.id, players.c.id, players.d.id], [players.e.id]),
+      makeMatch('m2', 2, 3_600_000, [players.a.id, players.b.id, players.c.id, players.e.id], [players.d.id]),
+    )
+    session.nextCompletionSequence = 3
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    expect(proposeRound()).toBe(true)
+    expect(ui.pending?.rotationWildcard).toMatchObject({
+      schemaVersion: 1,
+      normalPlayingIds: [players.a.id, players.b.id, players.c.id, players.d.id].sort(),
+      exchangedOutId: expect.any(String),
+      exchangedInId: players.e.id,
+    })
+  })
+
+  it('preserves lineage for team-only swaps and clears it for every final-set violation', () => {
+    const players = startPlayers()
+    const id = (key: typeof ids[number]) => players[key].id
+
+    setPendingLineage(players)
+    swapInPending(id('b'), id('d'))
+    expect(ui.pending?.rotationWildcard).toBeDefined()
+
+    setPendingLineage(players)
+    swapInPending(id('e'), id('f'))
+    expect(ui.pending?.rotationWildcard).toBeUndefined()
+
+    setPendingLineage(players)
+    swapInPending(id('e'), id('a'))
+    expect(ui.pending?.rotationWildcard).toBeUndefined()
+
+    setPendingLineage(players)
+    swapInPending(id('b'), id('f'))
+    expect(ui.pending?.rotationWildcard).toBeUndefined()
+
+    ui.pending = {
+      mode: 'doubles', teamA: [id('a'), id('b')], teamB: [id('c'), id('d')],
+      resters: [id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    swapInPending(id('a'), id('e'))
+    expect(ui.pending?.rotationWildcard).toBeUndefined()
+    expect([...ui.pending!.teamA, ...ui.pending!.teamB]).toContain(id('e'))
+  })
+
+  it('freezes only valid lineage at start, copies it on completion, and never fabricates it on cancellation', () => {
+    const players = startPlayers()
+    setPendingLineage(players)
+    const expected = JSON.parse(JSON.stringify(ui.pending!.rotationWildcard))
+
+    startMatch()
+    expect(ui.live?.rotationWildcard).toEqual(expected)
+    expect(data.sessions[0]!.liveMatch?.rotationWildcard).toEqual(expected)
+    expect(data.matches).toHaveLength(0)
+    expect(submitScore(21, 10)).toBeNull()
+    expect(data.matches[0]!.rotationWildcard).toEqual(expected)
+    expect(editMatchScore(data.matches[0]!.id, 10, 21)).toBeNull()
+    expect(data.matches[0]!.rotationWildcard).toEqual(expected)
+
+    setPendingLineage(players)
+    startMatch()
+    cancelLiveMatch()
+    expect(data.matches).toHaveLength(1)
+    expect(ui.live).toBeNull()
+    expect(data.sessions[0]!.liveMatch).toBeUndefined()
+  })
+
+  it('sets cooldown to two only on valid wildcard completion and shares reliable decrements across modes', () => {
+    const players = startPlayers()
+    const session = data.sessions[0]!
+    const id = (key: typeof ids[number]) => players[key].id
+    setPendingLineage(players)
+    startMatch()
+    expect(session.rotationWildcardCooldownRemaining).toBe(0)
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+
+    expect(proposeRound()).toBe(true)
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+    cancelPending()
+    ui.pending = {
+      mode: 'singles', teamA: [id('a')], teamB: [id('b')],
+      resters: [id('c'), id('d'), id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    startMatch()
+    cancelLiveMatch()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+
+    ui.pending = {
+      mode: 'singles', teamA: [id('a')], teamB: [id('b')],
+      resters: [id('c'), id('d'), id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    startMatch()
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(1)
+
+    ui.pending = {
+      mode: 'doubles', teamA: [id('a'), id('b')], teamB: [id('c'), id('d')],
+      resters: [id('e'), id('f')],
+      scoringFormat: createCatalogSnapshot('badminton-15-w2-c21'),
+    }
+    startMatch()
+    expect(submitScore(10, 9, { forceUnrated: true })).toBeNull()
+    expect(data.matches.at(-1)!.excludedFromRating).toBe(true)
+    expect(session.rotationWildcardCooldownRemaining).toBe(0)
+  })
+
+  it('never rewinds cooldown from score edits/deletions and resets only for a new activity', () => {
+    const players = startPlayers()
+    const firstSession = data.sessions[0]!
+    setPendingLineage(players)
+    startMatch()
+    expect(submitScore(21, 10)).toBeNull()
+    const wildcardMatchId = data.matches[0]!.id
+    expect(firstSession.rotationWildcardCooldownRemaining).toBe(2)
+
+    expect(editMatchScore(wildcardMatchId, 10, 21)).toBeNull()
+    expect(firstSession.rotationWildcardCooldownRemaining).toBe(2)
+    deleteMatch(wildcardMatchId)
+    expect(firstSession.rotationWildcardCooldownRemaining).toBe(2)
+
+    endSession()
+    expect(firstSession.rotationWildcardCooldownRemaining).toBe(2)
+    startSession(Object.values(players).map((player) => player.id), TEST_FORMAT)
+    expect(data.sessions.at(-1)!.rotationWildcardCooldownRemaining).toBe(0)
+    expect(firstSession.rotationWildcardCooldownRemaining).toBe(2)
+  })
+
+  it('pauses draws and cooldown in degraded fallback, then resumes the exact count after repair', () => {
+    const players = startPlayers()
+    const session = data.sessions[0]!
+    const id = (key: typeof ids[number]) => players[key].id
+    session.rotationWildcardCooldownRemaining = 2
+    session.attendanceEvents!.push({
+      ...session.attendanceEvents![0]!,
+      sequence: session.attendanceEvents!.length,
+    })
+    refreshFairnessNow()
+    expect(fairnessProjection.value).toMatchObject({ status: 'degraded' })
+    expect(rotationWildcardState.value).toMatchObject({
+      status: 'paused', reason: 'fairness-degraded', remaining: 2,
+    })
+
+    expect(proposeRound()).toBe(true)
+    expect(ui.pending?.rotationWildcard).toBeUndefined()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+    cancelPending()
+    ui.pending = {
+      mode: 'singles', teamA: [id('a')], teamB: [id('b')],
+      resters: [id('c'), id('d'), id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    startMatch()
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+
+    expect(repairFairness()).toBe(true)
+    expect(fairnessProjection.value).toMatchObject({ status: 'valid' })
+    expect(rotationWildcardState.value).toMatchObject({ status: 'cooldown', remaining: 2 })
+    ui.pending = {
+      mode: 'singles', teamA: [id('a')], teamB: [id('b')],
+      resters: [id('c'), id('d'), id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    startMatch()
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(1)
+  })
+
+  it('sets cooldown two when a valid wildcard live match degrades before completion, then keeps it paused', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const players = startPlayers()
+    const session = data.sessions[0]!
+    const id = (key: typeof ids[number]) => players[key].id
+    setPendingLineage(players)
+    startMatch()
+    session.attendanceEvents!.push({
+      ...session.attendanceEvents![0]!,
+      sequence: session.attendanceEvents!.length,
+    })
+    refreshFairnessNow()
+    expect(rotationWildcardState.value).toMatchObject({ status: 'paused' })
+
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+    ui.pending = {
+      mode: 'singles', teamA: [id('a')], teamB: [id('b')],
+      resters: [id('c'), id('d'), id('e'), id('f')], scoringFormat: TEST_FORMAT,
+    }
+    startMatch()
+    expect(submitScore(21, 10)).toBeNull()
+    expect(session.rotationWildcardCooldownRemaining).toBe(2)
+
+    const preRepairMatchAt = data.matches.at(-1)!.at
+    expect(repairFairness()).toBe(true)
+    const appliedBoundary = session.attendanceEvents!
+      .filter((event) => event.kind === 'fairness-recovery-boundary' && !event.liveMatchId)
+      .at(-1)!
+    expect(appliedBoundary.at).toBeGreaterThan(preRepairMatchAt)
+    ui.mode = 'singles'
+    expect(proposeRound()).toBe(true)
+    startMatch()
+    expect(Object.keys(ui.live?.fairnessPeriodIds ?? {})).toHaveLength(2)
+    expect(submitScore(21, 10)).toBeNull()
+    expect(fairnessProjection.value).toEqual({
+      status: 'valid',
+      participantStates: expect.any(Object),
+    })
+    const repairedMatch = data.matches.at(-1)!
+    if (fairnessProjection.value?.status !== 'valid') throw new Error('expected valid fairness projection')
+    for (const playerId of [...repairedMatch.teamA, ...repairedMatch.teamB]) {
+      expect(fairnessProjection.value.participantStates[playerId]?.appearances).toBe(1)
+    }
+    expect(session.rotationWildcardCooldownRemaining).toBe(1)
+  })
+
+  it('does not advance trusted fairness time to persisted future events outside explicit repair', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const players = startPlayers()
+    const session = data.sessions[0]!
+    const restingId = players.f.id
+    session.attendanceEvents!.push({
+      id: 'future-rest-start',
+      sessionId: session.id,
+      kind: 'voluntary-rest-start',
+      playerId: restingId,
+      at: 5_000,
+      sequence: session.attendanceEvents!.length,
+    })
+    session.volunteerRest.push(restingId)
+    refreshFairnessNow()
+    expect(fairnessProjection.value).toMatchObject({
+      status: 'degraded', reason: 'future attendance event',
+    })
+    const futureCheckpoint = exportCsvText()
+
+    toggleVolunteerRest(restingId)
+    expect(session.attendanceEvents!.at(-1)!.at).toBe(1_000)
+    expect(fairnessProjection.value).toMatchObject({ status: 'degraded' })
+
+    expect(repairFairness()).toBe(true)
+    const boundary = session.attendanceEvents!
+      .filter((event) => event.kind === 'fairness-recovery-boundary' && !event.liveMatchId)
+      .at(-1)!
+    expect(boundary.at).toBeGreaterThan(5_000)
+    expect(fairnessProjection.value).toMatchObject({ status: 'valid' })
+
+    importCsvText(futureCheckpoint)
+    expect(fairnessProjection.value).toMatchObject({
+      status: 'degraded', reason: 'future attendance event',
+    })
+  })
+
+  it('never completes before the trusted live start when the wall clock moves backward', () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const players = startPlayers()
+    setPendingLineage(players)
+    now = 2_000
+    startMatch()
+    expect(ui.live?.startedAt).toBe(2_000)
+
+    now = 500
+    expect(submitScore(21, 10)).toBeNull()
+    expect(data.matches.at(-1)!.at).toBe(2_000)
+  })
+})
+
+describe('CSV rotation checkpoint overwrite', () => {
+  it('restores an older cooldown/high-water checkpoint and performs zero partial replacement on corruption', () => {
+    const a = addPlayer('A', 1500)
+    const b = addPlayer('B', 1500)
+    startSession([a.id, b.id], TEST_FORMAT)
+    const session = data.sessions[0]!
+    const complete = () => {
+      ui.live = {
+        mode: 'singles', teamA: [a.id], teamB: [b.id], resters: [],
+        scoringFormat: TEST_FORMAT,
+      }
+      expect(submitScore(21, 10)).toBeNull()
+    }
+    complete()
+    complete()
+    session.rotationWildcardCooldownRemaining = 1
+    const expectedSessionId = session.id
+    const backup = exportCsvText()
+    const firstMatch = { ...data.matches[0]! }
+
+    session.rotationWildcardCooldownRemaining = 2
+    session.nextCompletionSequence = 9
+    addPlayer('newer-local-only', 1500)
+    importCsvText(backup)
+
+    const restored = data.sessions.find((item) => item.id === expectedSessionId)!
+    expect(restored.rotationWildcardCooldownRemaining).toBe(1)
+    expect(restored.nextCompletionSequence).toBe(3)
+    expect(data.matches.map((match) => match.completionSequence)).toEqual([1, 2])
+    expect(data.players.some((player) => player.name === 'newer-local-only')).toBe(false)
+
+    const before = JSON.stringify(data)
+    const malformed = backup.replace(
+      `${firstMatch.id},${firstMatch.sessionId},${firstMatch.at},1,`,
+      `${firstMatch.id},${firstMatch.sessionId},${firstMatch.at},0,`,
+    )
+    expect(malformed).not.toBe(backup)
+    expect(() => importCsvText(malformed)).toThrow(/completion sequence/i)
+    expect(JSON.stringify(data)).toBe(before)
   })
 })

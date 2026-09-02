@@ -7,6 +7,7 @@
  * 4. 差距在容差內的選項視為等價，隨機挑一個以保留配對變化。
  */
 import type { Match, Mode, RoundProposal } from '../types'
+import { orderMatchesByCompletionSequence } from './rotation-chronology'
 
 export interface Candidate {
   id: string
@@ -34,6 +35,7 @@ export type Rng = () => number
  * 換算約 0.03 分的預期分差差異。見 docs/research/score-aware-margin-calibration.md。
  */
 export const BALANCE_TOLERANCE = 25
+export const DEFAULT_FAIRNESS_BAND = 0.5
 
 /**
  * 聯合搜尋的組合數上限。超過時退回既有行為（公平排序取前 N 人再分隊），
@@ -53,11 +55,9 @@ export interface RoundDiagnostics {
  * 未出現在最新一場者不放入 Map，呼叫端視為 0。
  */
 export function consecutivePlayCounts(matches: readonly Match[]): Map<string, number> {
-  const ordered = matches
-    .map((match, index) => ({ match, index }))
-    .sort((a, b) => b.match.at - a.match.at || b.index - a.index)
-    .map(({ match }) => match)
-
+  const first = matches[0]
+  if (!first) return new Map()
+  const ordered = orderMatchesByCompletionSequence(matches, first.sessionId).reverse()
   const latest = ordered[0]
   if (!latest) return new Map()
 
@@ -122,17 +122,157 @@ export function balanceTeams(
   return { teamA, teamB }
 }
 
+/** 在不改變固定上場集合的前提下，從 best + 25 的等價分隊中依注入亂數選一組。 */
+export function splitFixedPlayingSet(
+  playing: readonly Candidate[],
+  mode: Mode,
+  rng: Rng = Math.random,
+  maximumGap = Infinity,
+): { teamA: string[]; teamB: string[] } {
+  const need = mode === 'doubles' ? 4 : 2
+  if (
+    playing.length !== need ||
+    new Set(playing.map((candidate) => candidate.id)).size !== need
+  ) {
+    throw new Error(`Fixed ${mode} playing set must contain exactly ${need} unique participants`)
+  }
+
+  if (mode === 'singles') {
+    return { teamA: [playing[0]!.id], teamB: [playing[1]!.id] }
+  }
+
+  const [p0, p1, p2, p3] = playing as readonly [
+    Candidate,
+    Candidate,
+    Candidate,
+    Candidate,
+  ]
+  const candidates = [
+    { teamA: [p0, p1], teamB: [p2, p3] },
+    { teamA: [p0, p2], teamB: [p1, p3] },
+    { teamA: [p0, p3], teamB: [p1, p2] },
+  ].map((split) => ({
+    ...split,
+    gap: Math.abs(
+      split.teamA.reduce((total, candidate) => total + candidate.rating, 0) -
+        split.teamB.reduce((total, candidate) => total + candidate.rating, 0),
+    ),
+  }))
+  const bestGap = Math.min(...candidates.map((candidate) => candidate.gap))
+  const equivalent = candidates.filter(
+    (candidate) =>
+      candidate.gap <= bestGap + BALANCE_TOLERANCE && candidate.gap <= maximumGap,
+  )
+  const picked = equivalent[
+    Math.min(equivalent.length - 1, Math.floor(rng() * equivalent.length))
+  ]!
+  return {
+    teamA: picked.teamA.map((candidate) => candidate.id),
+    teamB: picked.teamB.map((candidate) => candidate.id),
+  }
+}
+
+export interface ApplyRotationWildcardInput {
+  normalProposal: RoundProposal
+  candidates: readonly Candidate[]
+  completedPlayingSets: readonly (readonly string[])[]
+  cooldownRemaining: number
+  fairnessReliable: boolean
+  rng: Rng
+}
+
+/** Pure post-selection transform. Store/UI integration remains separately gated. */
+export function applyRotationWildcard(
+  input: ApplyRotationWildcardInput,
+): RoundProposal {
+  const normalPlayingIds = canonicalIds([
+    ...input.normalProposal.teamA,
+    ...input.normalProposal.teamB,
+  ])
+  const twoBack = input.completedPlayingSets.at(-2)
+  if (
+    !twoBack ||
+    !sameIds(normalPlayingIds, canonicalIds(twoBack)) ||
+    input.cooldownRemaining > 0 ||
+    !input.fairnessReliable
+  ) {
+    return input.normalProposal
+  }
+
+  const normalSet = new Set(normalPlayingIds)
+  const eligibleOutsiders = input.candidates.filter(
+    (candidate) => !candidate.volunteerRest && !normalSet.has(candidate.id),
+  )
+  if (eligibleOutsiders.length === 0) return input.normalProposal
+
+  const probability = input.normalProposal.mode === 'doubles' ? 0.25 : 0.125
+  if (input.rng() >= probability) return input.normalProposal
+
+  const byId = new Map(input.candidates.map((candidate) => [candidate.id, candidate]))
+  const normalCandidates = normalPlayingIds.map((id) => {
+    const candidate = byId.get(id)
+    if (!candidate) throw new Error(`Normal proposal participant is not eligible: ${id}`)
+    return candidate
+  })
+  const exchangedOut = normalCandidates[pickIndex(normalCandidates.length, input.rng)]!
+  const exchangedIn = eligibleOutsiders[pickIndex(eligibleOutsiders.length, input.rng)]!
+  const finalCandidates = normalCandidates
+    .filter((candidate) => candidate.id !== exchangedOut.id)
+    .concat(exchangedIn)
+  const { teamA, teamB } = splitFixedPlayingSet(
+    finalCandidates,
+    input.normalProposal.mode,
+    input.rng,
+  )
+  const playingSet = new Set([...teamA, ...teamB])
+  return {
+    mode: input.normalProposal.mode,
+    teamA,
+    teamB,
+    resters: input.candidates
+      .filter((candidate) => !playingSet.has(candidate.id))
+      .map((candidate) => candidate.id),
+    rotationWildcard: {
+      schemaVersion: 1,
+      normalPlayingIds,
+      exchangedOutId: exchangedOut.id,
+      exchangedInId: exchangedIn.id,
+    },
+  }
+}
+
+function pickIndex(length: number, rng: Rng): number {
+  return Math.min(length - 1, Math.floor(rng() * length))
+}
+
+function canonicalIds(ids: readonly string[]): string[] {
+  return [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index])
+}
+
 const fairnessKey = (c: Candidate, layer: number) => `${layer}:${c.consecutivePlayCount}`
 
-/** Minimum-anchored 0.5 appearances/hour layers (not pairwise chained buckets). */
-export function rateLayers(candidates: readonly Candidate[]): Map<string, number> {
+/** Minimum-anchored fixed-band layers (not pairwise chained buckets). */
+export function rateLayers(
+  candidates: readonly Candidate[],
+  fairnessBand = DEFAULT_FAIRNESS_BAND,
+): Map<string, number> {
+  if (!Number.isFinite(fairnessBand) || fairnessBand < 0) {
+    throw new Error('Fairness band must be a finite non-negative number')
+  }
   const layers = new Map<string, number>()
   const ordered = [...candidates].sort((a, b) => (a.ratePerHour ?? 0) - (b.ratePerHour ?? 0))
   let index = 0
   let layer = 0
   while (index < ordered.length) {
     const anchor = ordered[index]!.ratePerHour ?? 0
-    while (index < ordered.length && (ordered[index]!.ratePerHour ?? 0) <= anchor + 0.5) {
+    while (
+      index < ordered.length &&
+      (ordered[index]!.ratePerHour ?? 0) <= anchor + fairnessBand
+    ) {
       layers.set(ordered[index]!.id, layer)
       index++
     }
@@ -173,6 +313,7 @@ export function generateRound(
   mode: Mode,
   rng: Rng = Math.random,
   diagnostics?: RoundDiagnostics,
+  fairnessBand = DEFAULT_FAIRNESS_BAND,
 ): RoundProposal | null {
   const need = mode === 'doubles' ? 4 : 2
   const volunteers = candidates.filter((c) => c.volunteerRest)
@@ -181,7 +322,7 @@ export function generateRound(
 
   // Build rate layers before random ordering; absent rate explicitly retains legacy count fairness.
   const layers = eligible.some((candidate) => candidate.ratePerHour !== undefined)
-    ? rateLayers(eligible)
+    ? rateLayers(eligible, fairnessBand)
     : new Map(eligible.map((candidate) => [candidate.id, candidate.playCount]))
   const ordered = shuffled(eligible, rng).sort(
     (a, b) =>
@@ -215,13 +356,13 @@ export function generateRound(
   }
   const remaining = need - admitted.length
 
-  const finish = (playing: readonly Candidate[]) => {
+  const finish = (playing: readonly Candidate[], maximumGap = Infinity) => {
     const playingIds = new Set(playing.map((c) => c.id))
     const resters = [
       ...ordered.filter((c) => !playingIds.has(c.id)),
       ...volunteers,
     ].map((c) => c.id)
-    const { teamA, teamB } = bestSplit(playing, mode)
+    const { teamA, teamB } = splitFixedPlayingSet(playing, mode, rng, maximumGap)
     return { mode, teamA, teamB, resters }
   }
 
@@ -261,5 +402,5 @@ export function generateRound(
   // 容差內視為等價，隨機挑一個以保留配對變化
   const equivalent = options.filter((o) => o.gap <= bestGap + BALANCE_TOLERANCE)
   const picked = equivalent[Math.min(equivalent.length - 1, Math.floor(rng() * equivalent.length))]!
-  return finish(picked.playing)
+  return finish(picked.playing, bestGap + BALANCE_TOLERANCE)
 }

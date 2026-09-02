@@ -9,6 +9,7 @@ import {
   currentSession,
   downloadCsvBackup,
   importCsvText,
+  inspectCsvText,
   overrideRating,
   renamePlayer,
   restorePlayer,
@@ -63,20 +64,26 @@ function onExport() {
 }
 
 const fileInput = ref<HTMLInputElement>();
+const pendingImport = ref<{ text: string; preview: ReturnType<typeof inspectCsvText> } | null>(null);
 
 async function onImportFile(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = "";
   if (!file) return;
-  if (
-    !window.confirm(
-      "匯入將「覆蓋」目前所有資料（參賽者、場次、比賽紀錄），確定嗎？",
-    )
-  )
-    return;
   try {
-    importCsvText(await file.text());
+    const text = await file.text();
+    pendingImport.value = { text, preview: inspectCsvText(text) };
+  } catch (err) {
+    message.value = `匯入失敗：${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+function confirmImport() {
+  if (!pendingImport.value) return;
+  try {
+    importCsvText(pendingImport.value.text);
+    pendingImport.value = null;
     message.value = "匯入完成";
   } catch (err) {
     message.value = `匯入失敗：${err instanceof Error ? err.message : String(err)}`;
@@ -117,6 +124,36 @@ async function onImportFile(e: Event) {
     >
       {{ message }}
     </p>
+
+    <div
+      v-if="pendingImport"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="確認匯入完整 checkpoint"
+    >
+      <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+        <h3 class="mb-2 text-lg font-bold">確認完整覆蓋</h3>
+        <p class="mb-3 text-sm text-slate-600">
+          這是完整 checkpoint restore，將覆蓋目前所有參賽者、活動、比賽與完成順序；不是合併。
+        </p>
+        <div v-if="pendingImport.preview.activeSessionName" class="mb-3 rounded-lg bg-violet-50 p-3 text-sm text-violet-800">
+          <p>備份活動：{{ pendingImport.preview.activeSessionName }}</p>
+          <p>下一完成序號：{{ pendingImport.preview.nextCompletionSequence }}</p>
+        </div>
+        <p class="mb-4 text-sm font-medium text-amber-800">
+          目前資料與完成順序都會被備份值取代，可能回到較舊狀態。
+        </p>
+        <button
+          class="mb-3 min-h-11 w-full rounded-xl border border-slate-300 py-2 text-sm text-slate-700"
+          @click="onExport"
+        >先匯出目前資料</button>
+        <div class="flex gap-2">
+          <button class="min-h-11 flex-1 rounded-xl border border-slate-300 py-2 text-sm" @click="pendingImport = null">取消</button>
+          <button class="min-h-11 flex-1 rounded-xl bg-red-600 py-2 text-sm font-medium text-white" @click="confirmImport">確認覆蓋並匯入</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 新增 -->
     <form class="mb-4 flex flex-col gap-2 sm:flex-row" @submit.prevent="onAdd">

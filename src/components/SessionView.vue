@@ -10,7 +10,6 @@ import {
   leaveSession,
   playerById,
   proposeRound,
-  repairFairness,
   resetFairnessPeriod,
   sessionStats,
   setSessionDefaultScoringFormat,
@@ -74,7 +73,6 @@ const presentPlayers = computed(() =>
 const absentPlayers = computed(() =>
   activePlayers.value.filter((p) => !authoritativePresentIds.value.includes(p.id)),
 )
-const fairnessDegraded = computed(() => fairnessProjection.value?.status === 'degraded')
 const rotationState = (id: string) => fairnessProjection.value?.status === 'valid'
   ? fairnessProjection.value.participantStates[id]
   : undefined
@@ -99,10 +97,6 @@ onUnmounted(() => {
 function onResetRate(id: string) {
   if (window.confirm('重置上場率不會更動今日上場總數或 Rating。確定重置？')) resetFairnessPeriod(id)
 }
-function onRepairFairness() {
-  if (window.confirm('將為所有目前在場者從現在開始新的公平計算期。確定修復？')) repairFairness()
-}
-
 function onPropose() {
   message.value = ''
   if (!proposeRound()) {
@@ -176,11 +170,6 @@ function onEnd() {
         <h2 class="text-lg font-bold">{{ sess.name }}</h2>
         <button class="text-sm text-slate-400 hover:text-red-500" @click="onEnd">結束場次</button>
       </div>
-
-      <p v-if="fairnessDegraded" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-        上場率公平目前無法使用；分組暫以總上場次數輪替。
-        <button class="ml-2 underline" @click="onRepairFairness">修復公平計算</button>
-      </p>
 
       <!-- 單/雙打切換 -->
       <div class="mb-4 flex overflow-hidden rounded-lg border border-slate-300 text-sm" role="group" aria-label="比賽模式">

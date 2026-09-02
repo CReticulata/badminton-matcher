@@ -103,6 +103,16 @@ describe('sessionRatingReport', () => {
     expect(report.summary.every((row) => row.delta === 0)).toBe(true)
   })
 
+  it('不納入活動 startedAt 之前但誤帶相同 sessionId 的比賽', () => {
+    const report = sessionRatingReport(session, [
+      match('pre-start', 99, ['a'], ['b'], 21, 18),
+      match('inside', 100, ['a'], ['b'], 21, 18),
+    ])!
+
+    expect(report.matchChanges.has('pre-start')).toBe(false)
+    expect(report.matchChanges.has('inside')).toBe(true)
+  })
+
   it('舊活動加入順序不可靠時保留單場變動但不產生整日摘要', () => {
     const report = sessionRatingReport(
       { ...session, participantOrderReliable: false },

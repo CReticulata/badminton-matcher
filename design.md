@@ -29,6 +29,8 @@
 - 兩隊強度盡量平衡（以 rating 計算），但輪替公平性優先於強度平衡
 - 單打／雙打：每回合皆可切換，預設雙打；單打畫面為左右各一大區塊、中間 VS
 - **手動調組**：自動分組後，在分組預覽畫面「點選兩人交換」（含與休息區的人交換）；統計與 rating 一律以實際確認開打的分組計算
+- **兩回合重複與輪替外卡（RW-51，已實作但 production generation 尚未發布）**：先依正常公平序位產生名單；只有正常上場集合將與兩場之前已完成比賽的實際上場集合完全相同時，才進行每次產生分組的獨立抽籤（雙打 25%、單打 12.5%，重新產生可重抽）。中籤後只均勻隨機換出正常名單一人、換入其他可上場且未自願休息者一人，再以固定上場集合的既有 Rating 平衡與 25 分容差分隊；不完全隨機抽整組、不完全隨機分隊，也不設八人特例。只有最終上場集合精確等於「正常集合減去換出者再加入換入者」的完成比賽才保留外卡身份；其後單／雙打共用的活動冷卻設為 2，每完成一場減一。純手動調組不觸發。演算法、completion chronology、lineage、cooldown、localStorage／CSV與audit UI已完成；因 representative study無候選通過全部門檻且無approval manifest，production compile-time flag仍為false，build guard會移除並檢查生成路徑。詳細權威、持久化、降級與release語意見 ADR 0003。
+- **公平帶 simulation-first gate（RW-52，representative study 已完成但未授權改值）**：production 目前仍使用每小時 0.5 場。2026-09-02 的 29-cell、500-seed paired A/B/C/D study沒有候選同時通過至少 25%平均兩回合重複率改善與每-cell p95公平退讓最多一場的門檻，因此沒有可核准候選，也沒有machine-readable approval manifest。build/release guard重算 evidence digest並核對 production constant；manifest缺失或無效時只允許0.5且要求外卡production generation保持未發布。後續值或機制調整必須另開一輪，不得由本輪結果自動選取 least-bad value。
 
 ## 計分與 rating
 

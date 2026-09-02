@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b && vite build --manifest && tsx docs/research/scripts/rotation-wildcard-simulation/verify-production-isolation.ts && tsx docs/research/scripts/rotation-wildcard-simulation/verify-release-authority.ts",
     "preview": "vite preview",
-    "test": "vitest run"
+    "simulation:smoke": "tsx docs/research/scripts/rotation-wildcard-simulation/smoke.ts",
+    "simulation:representative": "tsx docs/research/scripts/rotation-wildcard-simulation/representative.ts",
+    "test": "vitest run",
+    "test:simulation": "vitest run docs/research/scripts/rotation-wildcard-simulation/*.test.ts",
+    "verify:production-isolation": "tsx docs/research/scripts/rotation-wildcard-simulation/verify-production-isolation.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -20,6 +24,7 @@
     "@vue/test-utils": "2.5.0",
     "@vue/tsconfig": "^0.9.1",
     "happy-dom": "20.11.2",
+    "tsx": "4.23.13",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10",

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "runKind": "smoke",
+  "promotionEligible": false,
+  "candidateBand": 1,
+  "rowCount": 16,
+  "repeatRates": {
+    "A": 0.3,
+    "B": 0.4,
+    "C": 0.3,
+    "D": 0.35
+  }
+}

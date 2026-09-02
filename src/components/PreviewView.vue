@@ -43,6 +43,13 @@ function tap(id: string) {
 
 const pending = computed(() => ui.pending)
 const player = (id: string) => playerById.value.get(id)
+const wildcardExchange = computed(() => {
+  const lineage = pending.value?.rotationWildcard
+  return lineage ? {
+    inName: player(lineage.exchangedInId)?.name ?? '?',
+    outName: player(lineage.exchangedOutId)?.name ?? '?',
+  } : null
+})
 
 </script>
 
@@ -51,6 +58,13 @@ const player = (id: string) => playerById.value.get(id)
     <div class="mx-auto max-w-2xl p-4">
       <h2 class="mb-1 text-lg font-bold">分組預覽</h2>
       <p class="mb-4 text-sm text-slate-500">點選兩人可交換位置（含休息名單）</p>
+      <p
+        v-if="wildcardExchange"
+        class="mb-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800"
+      >
+        <span class="font-semibold">輪替外卡</span>
+        <span class="ml-2">換入：{{ wildcardExchange.inName }}・換出：{{ wildcardExchange.outName }}</span>
+      </p>
 
       <!-- 賽制：開打前可覆寫，開打後凍結 -->
       <div class="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">

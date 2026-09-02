@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "runKind": "smoke",
+  "promotionEligible": false,
+  "candidateBand": 1,
+  "cells": [
+    "doubles:8:late-join:variable:continuous",
+    "singles:7:late-join:variable:extreme"
+  ],
+  "seeds": [
+    "rw51-representative-0000",
+    "rw51-representative-0001"
+  ],
+  "methods": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "representativeProtocolSha256": "336a96385ab4abb94179d068bb874bf6e98ff3ef03f1370845688a2824462142"
+}

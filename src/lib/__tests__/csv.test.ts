@@ -12,6 +12,8 @@ import {
   createUnknownSnapshot,
 } from '../scoring-format'
 import { projectRotationState } from '../rotation-fairness'
+import { migrateAppData } from '../migration'
+import { normalizeAppData } from '../app-data-normalization'
 
 /** 既有測試不驗證賽制，統一使用明確未知（維持原本的寬鬆比分規則） */
 const TEST_FORMAT = createUnknownSnapshot('explicit-unknown')
@@ -111,6 +113,87 @@ describe('CSV 匯出/匯入', () => {
   it('空內容或格式錯誤會 throw', () => {
     expect(() => importCsv('')).toThrow()
     expect(() => importCsv('id,name\n1,x')).toThrow()
+  })
+})
+
+describe('CSV rotation checkpoint', () => {
+  const checkpoint = (): AppData => {
+    const players = [...'abcde'].map((id, index) => ({
+      id, name: id, color: '#111111', rating: 1500 + index, rd: 350, vol: 0.06,
+      initialRating: 1500, createdAt: index,
+    }))
+    const rotationWildcard = {
+      schemaVersion: 1 as const,
+      normalPlayingIds: ['a', 'b', 'c', 'd'],
+      exchangedOutId: 'a', exchangedInId: 'e',
+    }
+    return {
+      players,
+      sessions: [{
+        id: 's', name: 's', startedAt: 0, nextCompletionSequence: 2,
+        rotationWildcardCooldownRemaining: 2,
+        participantIds: [], addedDuringSessionIds: [],
+        presentIds: ['a', 'b', 'c', 'd', 'e'], leftIds: [], volunteerRest: [], active: true,
+        defaultScoringFormat: TEST_FORMAT,
+        liveMatch: {
+          mode: 'doubles', teamA: ['b', 'c'], teamB: ['d', 'e'], resters: ['a'],
+          scoringFormat: TEST_FORMAT, liveMatchId: 'live', startedAt: 10,
+          rotationWildcard,
+        },
+      }],
+      matches: [{
+        id: 'm', sessionId: 's', at: 10, completionSequence: 1, mode: 'doubles',
+        teamA: ['b', 'c'], teamB: ['d', 'e'], scoreA: 21, scoreB: 10, resters: ['a'],
+        scoringFormat: TEST_FORMAT, rotationWildcard,
+      }],
+      overrides: [], baselines: [],
+    }
+  }
+
+  it('round-trips cooldown, high-water, completion sequence, live JSON lineage, and completed lineage exactly', () => {
+    const csv = exportCsv(checkpoint())
+    expect(csv).toContain('rotationWildcardCooldownRemaining')
+    expect(csv).toContain('nextCompletionSequence')
+    expect(csv).toContain('completionSequence')
+    expect(csv).toContain('rotationWildcard')
+    expect(importCsv(csv)).toEqual(checkpoint())
+  })
+
+  it('migrates old headers by equal timestamp original row order and remains stable after row reorder', () => {
+    const old = [
+      '[players]',
+      'id,name,color,rating,rd,vol,initialRating,createdAt',
+      'a,A,#111111,1500,350,0.06,1500,0',
+      'b,B,#222222,1500,350,0.06,1500,0',
+      '[sessions]',
+      'id,name,startedAt,endedAt,presentIds,leftIds,volunteerRest,active',
+      's,s,0,,a|b,,,false',
+      '[matches]',
+      'id,sessionId,at,mode,teamA,teamB,scoreA,scoreB,resters',
+      'second,s,10,singles,a,b,21,10,',
+      'first,s,10,singles,b,a,21,10,',
+    ].join('\n')
+    const migrated = migrateAppData(normalizeAppData(importCsv(old)), 0)
+    expect(migrated.matches.map((match) => [match.id, match.completionSequence])).toEqual([
+      ['second', 1], ['first', 2],
+    ])
+    expect(migrated.sessions[0]!.nextCompletionSequence).toBe(3)
+
+    const reordered = { ...migrated, matches: [...migrated.matches].reverse() }
+    const again = migrateAppData(normalizeAppData(importCsv(exportCsv(reordered))), 0)
+    expect(again.matches.map((match) => [match.id, match.completionSequence])).toEqual([
+      ['first', 2], ['second', 1],
+    ])
+    expect(again.sessions[0]!.nextCompletionSequence).toBe(3)
+  })
+
+  it('rejects malformed present rotation checkpoint fields', () => {
+    const valid = exportCsv(checkpoint())
+    const sessionPrefix = 's,s,0,,a|b|c|d|e,,,true,,,,,2,2,'
+    expect(() => normalizeAppData(importCsv(valid.replace(sessionPrefix, 's,s,0,,a|b|c|d|e,,,true,,,,,2,3,')))).toThrow()
+    expect(() => normalizeAppData(importCsv(valid.replace(sessionPrefix, 's,s,0,,a|b|c|d|e,,,true,,,,,1,2,')))).toThrow()
+    expect(() => normalizeAppData(importCsv(valid.replace('m,s,10,1,doubles,', 'm,s,10,0,doubles,')))).toThrow()
+    expect(() => normalizeAppData(importCsv(valid.replace('"{""schemaVersion"":1', '"{""schemaVersion"":2')))).toThrow()
   })
 })
 
@@ -244,7 +327,7 @@ describe('CSV 結構損毀', () => {
   })
 
   it('欄位名稱重複時拒絕', () => {
-    const csv = exportCsv(sample).replace('id,sessionId,at,mode', 'id,id,at,mode')
+    const csv = exportCsv(sample).replace('id,sessionId,at,completionSequence,mode', 'id,id,at,completionSequence,mode')
     expect(() => importCsv(csv)).toThrow(/欄位名稱重複/)
   })
 
