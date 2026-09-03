@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { cancelLiveMatch, playerById, ui } from '../store'
 import { displayScoringFormat } from '../lib/scoring-format'
 import { textColorOn } from '../lib/color'
+import LiveScoringFormatEditor from './LiveScoringFormatEditor.vue'
 
 const live = computed(() => ui.live)
 const player = (id: string) => playerById.value.get(id)
@@ -88,14 +89,15 @@ function confirmCancel() {
       <p v-if="restNames" class="min-w-0 shrink truncate text-sm text-white/50">
         休息：{{ restNames }}
       </p>
+      <LiveScoringFormatEditor id-prefix="display-live-format" trigger-label="賽制" />
       <button
-        class="ml-auto shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90"
+        class="min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white/90"
         @click="confirmCancel"
       >
         取消<span class="hidden landscape:inline">此對戰</span>
       </button>
       <button
-        class="shrink-0 whitespace-nowrap rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"
+        class="min-h-11 shrink-0 whitespace-nowrap rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"
         @click="ui.scoring = true"
       >
         結束比賽<span class="hidden landscape:inline">・輸入比分</span>
