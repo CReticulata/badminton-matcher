@@ -86,7 +86,7 @@ export interface Match {
   scoreB: number
   /** 該回合休息者（含自願休息），用於休息次數統計 */
   resters: string[]
-  /** 開打前凍結的賽制來源；舊資料為 legacy-missing，不得由比分反推 */
+  /** 完賽時的最終賽制來源；舊資料為 legacy-missing，不得由比分反推 */
   scoringFormat: ScoringFormatSnapshot
   /**
    * 比分不符合凍結賽制、但使用者選擇強制記錄。
@@ -159,7 +159,7 @@ export interface RoundProposal {
   rotationWildcard?: RotationWildcardLineageV1
 }
 
-/** 分組加上一份獨立的賽制快照；開打前可換，開打後凍結 */
+/** 分組加上一份獨立賽制快照；live期間可整份替換，completed後唯讀 */
 export interface MatchContext extends RoundProposal {
   readonly scoringFormat: ScoringFormatSnapshot
   /** Durable identity established at match start; queued resets bind to it. */

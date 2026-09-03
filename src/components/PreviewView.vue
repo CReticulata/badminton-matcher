@@ -66,7 +66,7 @@ const wildcardExchange = computed(() => {
         <span class="ml-2">換入：{{ wildcardExchange.inName }}・換出：{{ wildcardExchange.outName }}</span>
       </p>
 
-      <!-- 賽制：開打前可覆寫，開打後凍結 -->
+      <!-- 賽制：此處設定開打時的初始快照，live期間仍可只替換本場快照 -->
       <div class="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
         <span class="text-xs text-slate-500">賽制</span>
         <span class="text-sm">{{ displayScoringFormat(pending.scoringFormat) }}</span>

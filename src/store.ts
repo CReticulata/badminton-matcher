@@ -95,7 +95,7 @@ export const data = reactive<AppData>(
 
 export const persistenceError = ref<string | null>(null)
 
-export function persistData(): boolean {
+function persistAppData(value: AppData): boolean {
   const store = storage()
   if (!store) return true
   if (recoveryState.value.status === 'blocked') return false
@@ -105,13 +105,17 @@ export function persistData(): boolean {
   }
   preFormatRaw = null
   try {
-    store.setItem(STORAGE_KEY, JSON.stringify(data))
+    store.setItem(STORAGE_KEY, JSON.stringify(value))
     persistenceError.value = null
     return true
   } catch {
     persistenceError.value = '資料尚未儲存到此裝置，請先匯出 CSV 備份並釋放瀏覽器儲存空間。'
     return false
   }
+}
+
+export function persistData(): boolean {
+  return persistAppData(data)
 }
 
 watch(
@@ -150,29 +154,54 @@ export function discardBlockedData() {
   data.matches = [] as typeof data.matches
   data.overrides = [] as typeof data.overrides
   data.baselines = [] as typeof data.baselines
+  resetLiveScoreFlow()
   recoveryState.value = { status: 'ready' }
   persistData()
 }
 
 /** UI 流程狀態（不持久化） */
+const initialLive = outcome.status === 'ready'
+  ? outcome.data.sessions.find((session) => session.active)?.liveMatch ?? null
+  : null
+
 export const ui = reactive<{
   view: 'session' | 'players' | 'history'
   /** 待確認的分組（分組預覽）；含開打前可更換的賽制 */
   pending: MatchContext | null
-  /** 進行中的比賽（對戰顯示畫面）；賽制已凍結 */
+  /** 進行中的比賽（對戰顯示畫面）；完賽前可替換整份賽制快照 */
   live: MatchContext | null
   /** 顯示比分輸入 */
   scoring: boolean
+  /** 僅屬於一個 live match 的非持久化比分流程狀態 */
+  scoreFlow: {
+    liveMatchId: string | null
+    scoreA: string | number
+    scoreB: string | number
+    error: string
+  }
   mode: Mode
 }>({
   view: 'session',
   pending: null,
-  live: outcome.status === 'ready'
-    ? outcome.data.sessions.find((session) => session.active)?.liveMatch ?? null
-    : null,
+  live: initialLive,
   scoring: false,
+  scoreFlow: {
+    liveMatchId: initialLive?.liveMatchId ?? null,
+    scoreA: '',
+    scoreB: '',
+    error: '',
+  },
   mode: 'doubles',
 })
+
+export function resetLiveScoreFlow(liveMatchId: string | null = null) {
+  ui.scoreFlow = { liveMatchId, scoreA: '', scoreB: '', error: '' }
+}
+
+export function reconcileLiveScoreFlow(liveMatchId: string | null = ui.live?.liveMatchId ?? null) {
+  if (ui.scoreFlow.liveMatchId !== liveMatchId) resetLiveScoreFlow(liveMatchId)
+  return ui.scoreFlow
+}
 
 const genId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -290,6 +319,69 @@ export function repairFairness(): boolean {
 export const currentSession = computed<Session | null>(
   () => data.sessions.find((s) => s.active) ?? null,
 )
+
+export type ReplaceLiveScoringFormatResult =
+  | { ok: true; liveMatchId: string }
+  | { ok: false; reason: 'blocked' | 'no-active-session' | 'missing-live-match' | 'stale-live-match' | 'live-authority-mismatch' | 'invalid-format' | 'persistence-failed' }
+
+/** Replace only the expected in-progress match's detached format snapshot. */
+export function replaceLiveScoringFormat(
+  expectedLiveMatchId: string,
+  scoringFormat: ScoringFormatSnapshot,
+): ReplaceLiveScoringFormatResult {
+  if (isBlocked()) return { ok: false, reason: 'blocked' }
+  const session = currentSession.value
+  if (!session) return { ok: false, reason: 'no-active-session' }
+  const reactiveLive = ui.live
+  const recoverableLive = session.liveMatch
+  if (!reactiveLive || !recoverableLive) return { ok: false, reason: 'missing-live-match' }
+  if (
+    reactiveLive.liveMatchId !== recoverableLive.liveMatchId ||
+    !reactiveLive.liveMatchId
+  ) return { ok: false, reason: 'live-authority-mismatch' }
+  if (reactiveLive.liveMatchId !== expectedLiveMatchId) {
+    return { ok: false, reason: 'stale-live-match' }
+  }
+
+  let candidateFormat: ScoringFormatSnapshot
+  try {
+    candidateFormat = cloneScoringFormat(scoringFormat)
+  } catch {
+    return { ok: false, reason: 'invalid-format' }
+  }
+
+  const sessionIndex = data.sessions.findIndex(({ id }) => id === session.id)
+  const persistedSession = data.sessions[sessionIndex]
+  if (!persistedSession?.liveMatch || persistedSession.liveMatch.liveMatchId !== expectedLiveMatchId) {
+    return { ok: false, reason: 'live-authority-mismatch' }
+  }
+  const candidate: AppData = {
+    players: data.players,
+    matches: data.matches,
+    sessions: data.sessions.map((storedSession, index) => index === sessionIndex
+      ? {
+          ...storedSession,
+          liveMatch: {
+            ...persistedSession.liveMatch!,
+            scoringFormat: candidateFormat,
+          },
+        }
+      : storedSession),
+    overrides: data.overrides,
+    baselines: data.baselines,
+  }
+  if (!persistAppData(candidate)) return { ok: false, reason: 'persistence-failed' }
+
+  session.liveMatch = {
+    ...recoverableLive,
+    scoringFormat: cloneScoringFormat(candidateFormat),
+  }
+  ui.live = {
+    ...reactiveLive,
+    scoringFormat: cloneScoringFormat(candidateFormat),
+  }
+  return { ok: true, liveMatchId: expectedLiveMatchId }
+}
 
 export const playerById = computed(() => {
   const m = new Map<string, Player>()
@@ -497,6 +589,7 @@ export function startSession(presentIds: string[], defaultScoringFormat: Scoring
   fairnessEvaluationTime.value = startedAt
   ui.pending = null
   ui.live = null
+  resetLiveScoreFlow()
 }
 
 /** 變更活動預設賽制；只影響尚未開打的比賽，既有 live／已完成快照不受影響 */
@@ -683,7 +776,7 @@ export function swapInPending(idA: string, idB: string) {
   }
 }
 
-/** 開打：把選定的賽制凍結進 live context，此後不可更換 */
+/** 開打：建立獨立賽制快照；完賽前可由identity-bound command整份替換 */
 export function startMatch() {
   if (isBlocked()) return
   if (!ui.pending) return
@@ -711,6 +804,7 @@ export function startMatch() {
     ...(rotationWildcard ? { rotationWildcard } : {}),
   }
   session.liveMatch = ui.live
+  resetLiveScoreFlow(ui.live.liveMatchId ?? null)
   ui.pending = null
 }
 
@@ -734,6 +828,7 @@ export function cancelLiveMatch() {
   }
   ui.live = null
   ui.scoring = false
+  resetLiveScoreFlow()
 }
 
 /** 強制記錄選項：略過賽制檢查並將該場排除於強度計算之外 */
@@ -849,6 +944,7 @@ export function submitScore(
   delete sess.liveMatch
   ui.live = null
   ui.scoring = false
+  resetLiveScoreFlow()
   return null
 }
 
@@ -1045,6 +1141,7 @@ export function importCsvText(text: string) {
   ui.pending = null
   ui.live = parsed.sessions.find((session) => session.active)?.liveMatch ?? null
   ui.scoring = false
+  reconcileLiveScoreFlow(ui.live?.liveMatchId ?? null)
   if (blocked !== null) {
     // 先保留讀不懂的原始值，再解除封鎖並寫入還原後的資料
     ensurePreFormatBackup(storage(), blocked)

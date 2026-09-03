@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { playerById, submitScore, ui } from '../store'
+import { computed } from 'vue'
+import { playerById, reconcileLiveScoreFlow, submitScore, ui } from '../store'
 import { displayScoringFormat, isLegalEndpoint, isStructured } from '../lib/scoring-format'
+import LiveScoringFormatEditor from './LiveScoringFormatEditor.vue'
 
-const scoreA = ref<string | number>('')
-const scoreB = ref<string | number>('')
-const error = ref('')
+const scoreA = computed<string | number>({
+  get: () => reconcileLiveScoreFlow().scoreA,
+  set: (value) => { reconcileLiveScoreFlow().scoreA = value },
+})
+const scoreB = computed<string | number>({
+  get: () => reconcileLiveScoreFlow().scoreB,
+  set: (value) => { reconcileLiveScoreFlow().scoreB = value },
+})
+const error = computed<string>({
+  get: () => reconcileLiveScoreFlow().error,
+  set: (value) => { reconcileLiveScoreFlow().error = value },
+})
 
 /** type="number" 的 v-model 可能是 number 或 string */
 const toInt = (v: string | number): number => {
@@ -56,12 +66,15 @@ const onForce = () => record({ forceUnrated: true })
     v-if="live && ui.scoring"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
   >
-    <div class="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+    <div class="max-h-[calc(100svh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
       <h2 class="mb-1 text-center text-lg font-bold text-slate-800">輸入比分</h2>
-      <!-- 開打前凍結的賽制，唯讀 -->
+      <!-- 目前live match的賽制；下方共用editor可在完賽前整份替換 -->
       <p class="mb-4 text-center text-xs text-slate-500">
         {{ displayScoringFormat(live.scoringFormat) }}
       </p>
+      <div class="mb-4 text-center">
+        <LiveScoringFormatEditor id-prefix="score-live-format" />
+      </div>
       <div class="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div class="text-center">
           <p class="mb-2 text-sm font-medium text-slate-600">{{ names(live.teamA) }}</p>
