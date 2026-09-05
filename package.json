@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build --manifest && tsx docs/research/scripts/rotation-wildcard-simulation/verify-production-isolation.ts && tsx docs/research/scripts/rotation-wildcard-simulation/verify-release-authority.ts",
+    "build": "vue-tsc -b && vite build",
+    "build:manifest": "vue-tsc -b && vite build --manifest && tsx docs/research/scripts/rotation-wildcard-simulation/verify-production-isolation.ts && tsx docs/research/scripts/rotation-wildcard-simulation/verify-release-authority.ts",
     "preview": "vite preview",
     "simulation:smoke": "tsx docs/research/scripts/rotation-wildcard-simulation/smoke.ts",
     "simulation:representative": "tsx docs/research/scripts/rotation-wildcard-simulation/representative.ts",
