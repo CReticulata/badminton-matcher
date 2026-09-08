@@ -23,8 +23,8 @@
 ## 4. Obtain the fairness-band authority gate
 
 - [x] 4.1 Stop before changing the production `0.5` constant and present the verified report plus one recommendation to the user; do not infer approval from a passing metric.
-- [ ] 4.2 **BLOCKED — representative study無候選通過全部門檻，本輪不得建立approval manifest。** If and only if the user explicitly approves one gate-passing candidate, create a version-controlled machine-readable approval manifest binding the exact report/summary SHA-256 digests, selected fixed value, disclosed regressions, human approver, and source/message identity; add tamper tests and a build/release guard that recomputes evidence digests, matches the production constant, and requires exactly `0.5` when no complete valid manifest exists; amend ADR 0003 with that value.
-- [x] 4.3 If no candidate passes or no explicit approval is received, leave production at `0.5`, mark all later fairness-band production tasks blocked, and report that the simulation phase completed without production authorization.
+- [x] 4.2 Representative study沒有候選通過全部門檻，故普通passing-candidate approval manifest仍不得建立。依ArcherKuo message `1546861022458159164`及其後明確確認，建立另一份只限`0.5 + 既有外卡`的machine-readable risk-acceptance receipt：綁定精確report／summary SHA-256、approver／source、24.17%效果失敗、11/29 fairness-cell失敗與最差p95風險，literal承認promotion gate失敗，並將公平帶、機率、冷卻、lineage、validation與UI變更authority固定為false；guard須機械重算並拒絕缺漏、malformed、mismatch、wrong band、兩種manifest並存或scope擴張。
+- [x] 4.3 Record the representative-study outcome truthfully: no candidate passed, production band remains `0.5`, and no ordinary passing-candidate approval exists. A later scoped risk acceptance MAY supersede only wildcard release state without changing those facts.
 
 ## 5. Implement rotation-wildcard selection with TDD
 
@@ -34,7 +34,7 @@
 - [x] 5.4 GREEN: add the smallest pure rotation-wildcard transform and versioned lineage types in `src/lib/matchmaking.ts`/`src/types.ts`, preserving the normal proposal when any gate fails.
 - [x] 5.5 RED: add wildcard integration tests proving the exchanged fixed playing set uses `splitFixedPlayingSet`, retains `+25` Rating-gap seeded variation, never admits an out-of-tolerance split, and can never be reselected into a different playing set.
 - [x] 5.6 GREEN: route the exchanged playing set through the already-tested fixed-set split seam without reading or writing Rating state; rerun all focused matchmaking and Glicko non-interference tests.
-- [x] 5.7 After task 4.2 only, replace the production fairness-band constant with the exact approved value and add tests pinning that value for singles, doubles, all participant counts, minimum-anchored layer behavior, valid-manifest success, absent-manifest `0.5`, and constant/candidate/report/summary/approver/source tampering failures; otherwise leave `0.5` unchanged.
+- [x] 5.7 After task 4.2, keep the production fairness-band constant exactly `0.5`, enable only existing wildcard generation, and add tests pinning production success plus absent／malformed／digest／candidate／approver／source／risk-metric／wrong-band／adjacent-authority failures; retain the ordinary V1 passing-candidate path.
 
 ## 6. Implement lineage and forward-only cooldown with TDD
 
@@ -67,8 +67,9 @@
 ## 9. Integrate and verify
 
 - [x] 9.1 Update `CONTEXT.md`, root `design.md`, feature acceptance docs, and ADR 0003 to match the approved implementation and exact fairness-band authority; remove any stale `0.5` prose only after task 4.2.
-- [x] 9.2 Run focused RED/GREEN suites after each bounded surface, then run `npm exec --yes --package=pnpm@11.22.0 -- pnpm test` and record exact file/test counts. Final: 37 files / 403 tests passed.
-- [x] 9.3 Run the approval-manifest release guard and `npm exec --yes --package=pnpm@11.22.0 -- pnpm build`; verify the production dependency graph and output manifest contain no simulation modules/artifacts, and verify wildcard generation cannot ship independently before the approved-band gate passes.
+- [x] 9.2 Run focused RED/GREEN suites after each bounded surface, then run the full suite and record exact file/test counts. Current review-remediation final: 40 files / 458 tests passed.
+- [x] 9.3 Run both normal build and manifest build through production isolation plus release authority; verify no simulation modules/artifacts enter the bundle, exact `0.5` risk acceptance passes, and released output contains wildcard generation.
 - [x] 9.4 Run `openspec validate reduce-repeating-lineups --strict` and resolve every error without weakening requirements or dropping failed scenarios.
 - [x] 9.5 Perform headed browser acceptance for doubles and singles repeat/non-repeat draws, regeneration, manual invalidation, two-match shared cooldown, mode switching, degradation/repair, reload, CSV round-trip, history evidence, legacy import, and Rating non-interference; retain an evidence note and remove temporary screenshots.
-- [x] 9.6 Obtain independent code/spec review focused on stochastic boundaries, cumulative fairness tails, migration, history-delete non-retroactivity, UI truthfulness, and Glicko/replay isolation; resolve findings and rerun affected gates. Final exact-tree review: zero P0–P3 findings; 37 files / 403 tests, build/isolation/release-authority/strict-OpenSpec/diff gates passed.
+- [x] 9.6 Obtain independent code/spec review focused on stochastic boundaries, cumulative fairness tails, migration, history-delete non-retroactivity, UI truthfulness, and Glicko/replay isolation; resolve findings and rerun affected gates. Historical implementation review: zero P0–P3 findings; 37 files / 403 tests, build/isolation/release-authority/strict-OpenSpec/diff gates passed.
+- [ ] 9.7 Obtain a fresh independent exact-tree adversarial review of the new risk-acceptance boundary, including false-pass attempts, exact receipt/evidence binding, ordinary V1 preservation, bundle-marker state, immutable historical artifacts, and scope isolation; rerun affected gates after any production change.

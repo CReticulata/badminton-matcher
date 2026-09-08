@@ -46,20 +46,32 @@ The primary effect metric MUST be the rate at which the actual completed playing
 - **WHEN** the overall mean passes but one participant-count or attendance slice regresses
 - **THEN** the report exposes that slice for product review before approval
 
-### Requirement: Production uses one explicitly approved fixed fairness band
-After simulation, production MUST continue to use one fixed, minimum-anchored, inclusive fairness band for every participant count and both match modes. The selected numeric value MUST come from one version-controlled approval manifest that binds the exact report and summary SHA-256 digests, selected candidate, explicit human approver, and approval source. A build/release guard MUST recompute those digests and fail unless the production constant equals the approved candidate. When no complete valid approval manifest exists, the same guard MUST require the production constant to remain exactly 0.5 appearances per hour. The system MUST NOT derive the band from participant count, expose it as a user setting, silently choose the numerically best simulation result, or permit an invalid or stale approval manifest to authorize a build.
+### Requirement: Production uses one explicitly authorized fixed fairness band
+After simulation, production MUST continue to use one fixed, minimum-anchored, inclusive fairness band for every participant count and both match modes. The ordinary promotion path MUST use one version-controlled approval manifest that binds exact report/summary SHA-256 digests, a gate-passing selected candidate, explicit human approver, and approval source. A distinct risk-acceptance receipt MAY authorize only the existing rotation wildcard at band `0.5` when it binds the exact failed evidence digests, approving user/message, mechanically derived effect and fairness failures, literal gate-failure acknowledgement, and literal false authority for fairness-band, probability, cooldown, lineage, validation, and UI changes. The build/release guard MUST reject simultaneous ordinary approval and risk acceptance before either branch, recompute evidence digests and risk metrics, match production constants/flags, reject malformed/missing/mismatched/wrong-band/widened receipts, and verify the production bundle contains wildcard generation exactly when released. Risk acceptance MUST also bind an independently pinned, versioned allowlist of the exact source bytes implementing every denied adjacent behavior. Bundle verification MUST validate the Vite index/manifest entry graph, scan only entrypoint-reachable JavaScript, and execute deterministic eligible doubles and singles against actual built code to prove valid persisted one-seat wildcard lineage. With neither receipt, the prior fallback MUST require band `0.5` and wildcard generation unreleased. Production MUST NOT derive the band from participant count, expose it as a user setting, silently choose the numerically best result, or represent risk acceptance as a passing gate.
 
 #### Scenario: Approved band enters production
 - **WHEN** a complete version-controlled approval manifest names a candidate, binds valid report and summary digests, records explicit human approval, and the production constant equals that candidate
 - **THEN** the build/release guard passes and every normal singles and doubles proposal uses that same fixed inclusive value
 
-#### Scenario: No approval exists
-- **WHEN** simulation is complete but no complete valid approval manifest exists
-- **THEN** the build/release guard passes only when production retains exactly 0.5 appearances per hour
+#### Scenario: Scoped 0.5 wildcard risk acceptance enters production
+- **WHEN** the distinct receipt binds the exact failed evidence, ArcherKuo message `1546861022458159164`, band `0.5`, 24.17 percent repeat reduction, 11 of 29 failed fairness cells, worst p95 risks, literal gate-failure acknowledgement, wildcard generation true, and every adjacent authority false
+- **THEN** the guard permits only existing wildcard generation at fixed band `0.5` without changing the historical failed result
 
-#### Scenario: Approval or evidence is tampered
-- **WHEN** the production constant, selected candidate, report bytes, summary bytes, digest, approver, or approval source does not match the complete approval manifest
+#### Scenario: No release receipt exists
+- **WHEN** neither a valid ordinary approval nor valid risk acceptance exists
+- **THEN** the build/release guard passes only when production retains exactly 0.5 appearances per hour and wildcard generation remains unreleased
+
+#### Scenario: Release receipt or evidence is tampered
+- **WHEN** either receipt is malformed, both coexist, or the production constant, flag, candidate, report bytes, summary bytes, digest, derived risk metric, approver, source, acknowledgement, or adjacent authority does not match its exact contract
 - **THEN** the build/release guard fails closed before production publication
+
+#### Scenario: Released bundle omits generation
+- **WHEN** wildcard release authority is true but the production bundle lacks the generation marker
+- **THEN** the build/release guard fails closed
+
+#### Scenario: Marker is present only in a decoy or bypassed path
+- **WHEN** the marker exists only outside the Vite entry graph, index and manifest disagree, or actual built-app behavior does not perform the authorized one-seat replacement
+- **THEN** the build/release guard fails closed
 
 #### Scenario: Participant count changes
 - **WHEN** eligible attendance changes during a session

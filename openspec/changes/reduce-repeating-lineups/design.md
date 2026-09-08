@@ -4,7 +4,7 @@ See `proposal.md` for motivation. The current production path computes one propo
 
 Time-normalized fairness uses immutable attendance events and frozen match-to-period lineage. Invalid lineage enters visible total-count fallback. Rating balance runs only after the normal fairness order admits candidates, with a 10,000-option bound and a 25-point Rating-gap equivalence tolerance. Glicko-2 and replay do not need wildcard metadata to calculate results.
 
-This change crosses matchmaking, session state, migration, CSV, four UI surfaces, and offline evidence. The fairness-band value is deliberately unresolved until a paired deterministic study passes the agreed effect and fairness gates and the user approves one candidate.
+This change crosses matchmaking, session state, migration, CSV, four UI surfaces, and offline evidence. The paired deterministic study did not authorize a new fairness-band value, so production remains fixed at `0.5`; a later explicit owner decision authorizes only the existing wildcard at that band through a distinct evidence-bound risk acceptance.
 
 ## Goals / Non-Goals
 
@@ -196,20 +196,15 @@ The report recomputes summaries from primary rows and verifies exact method coun
 
 **Why:** the agreed 25% effect and p95 safety gates need stable denominators and paired identities, while a one-off study does not justify a general evidence platform.
 
-### 11. Separate evidence recommendation from production approval
+### 11. Separate evidence recommendation, ordinary promotion, and scoped risk acceptance
 
-The runner may identify candidates that satisfy all gates and rank them by the lowest mean two-round repeat rate. It cannot change source constants. A version-controlled machine-readable approval manifest must bind:
+The runner may identify candidates that satisfy all gates and rank them by the lowest mean two-round repeat rate. It cannot change source constants. The ordinary V1 approval path remains available only for a gate-passing candidate and binds the exact report/summary SHA-256 digests, selected candidate, human approver/source, and canonical regressions.
 
-- the exact report and summary SHA-256 digests;
-- the selected candidate value;
-- the explicit human approver and approval source/message identity;
-- any disclosed slice-level regressions.
+The representative study found no passing candidate. Its report, summary, receipt, protocol, primary rows, and evaluation report remain immutable and continue to state failure. ArcherKuo subsequently authorized only `0.5 + existing rotation wildcard` in message `1546861022458159164` and explicitly confirmed the narrow risk exception. A distinct risk-acceptance receipt therefore binds the exact failed report/summary digests, fixed band `0.5`, source identity, observed 24.17% repeat reduction, 11/29 failed fairness cells, worst p95 risks, literal gate-failure acknowledgement, wildcard-generation authority, and literal false authority for band, probability, cooldown, lineage, validation, and UI changes. The receipt records the cited decision; it is not a user signature.
 
-A build/release guard recomputes both evidence digests and compares the production constant with the manifest candidate. Any mismatch, missing required field, stale/foreign report, unknown candidate, or malformed approval fails closed. When no complete valid approval manifest exists, the guard instead asserts that production remains exactly `0.5`; the local PWA runtime never reads simulation evidence or chooses a value.
+The build verifier rejects simultaneous ordinary approval and risk acceptance before either branch. It mechanically derives risk metrics from the digest-bound summary, rejects missing/malformed/mismatched/wrong-band or widened receipts, and preserves the old no-manifest `0.5 + unreleased` fallback. Risk-receipt schema v2 additionally binds a versioned minimal source allowlist for denied fairness-band, probability, cooldown, lineage, data-validation, and preview-only UI behavior; verifier authority independently pins its digest and recomputes exact paths and byte hashes. This conservative boundary makes even cosmetic edits to pinned files require re-review/rebinding, while behavior changes still require separate authority. The bundle guard validates Vite index/manifest reachability, scans only reachable JavaScript for the marker, and executes deterministic doubles/singles behavior probes against actual built code to prove persisted one-seat wildcard lineage. Production runtime imports neither receipt nor simulation evidence.
 
-Without that validated manifest, production keeps `0.5`. If no candidate satisfies all gates, no approval value is offered and production implementation of a new band stops. Rotation-wildcard code may be developed and tested against `0.5`, but because the product decision is to release wildcard and the approved band together, wildcard generation remains unreleased until the same release gate is satisfied.
-
-**Why:** simulation produces evidence; it does not hold product authority.
+**Why:** failed evidence remains truthful while the owner can make one explicit product-policy choice without widening adjacent authority or weakening the ordinary gate.
 
 ## Metric Definitions
 
@@ -238,12 +233,12 @@ Without that validated manifest, production keeps `0.5`. If no candidate satisfi
 
 1. Land simulation runner, invariant tests, protocol schema, and smoke evidence without changing the production band or enabling wildcard UI.
 2. Freeze and execute the representative paired run; verify primary artifact counts, identities, digests, and summary recomputation.
-3. Present the report. If no value passes all gates, stop and retain production `0.5` behavior.
-4. After explicit approval, record the selected fixed band in the approval artifact and ADR amendment before production code uses it.
+3. Present the report. If no value passes all gates, stop the ordinary promotion path and retain production band `0.5`; preserve failed evidence unchanged.
+4. After explicit approval, either record a gate-passing selected band in the ordinary approval artifact, or record only the separately confirmed `0.5 + existing wildcard` risk exception in its distinct receipt. The latter must bind disclosed failures and deny every adjacent authority before production generation is enabled.
 5. Add optional lineage/cooldown fields, strict normalizers, CSV columns, store transitions, and UI behind tested data boundaries. Legacy absence maps only to non-wildcard/zero cooldown.
 6. Run focused unit, store, migration, CSV, component, full test, production build, and headed browser acceptance checks.
 7. Rollback behavior by restoring the previous fixed `0.5` constant and disabling wildcard generation. Optional persisted metadata remains safely readable and ignored by the prior behavior only if rollback compatibility tests prove that exact version path; otherwise deploy a forward fix rather than downgrading stored schema.
 
 ## Open Questions
 
-None. The numeric production fairness band is a deliberately unauthorized release gate, not an unresolved design question; it must be supplied by the approved evidence artifact before the corresponding production task begins.
+None. Production fairness band is fixed at `0.5`; the scoped risk acceptance authorizes only existing wildcard generation and leaves any future band change behind the ordinary passing-candidate gate.

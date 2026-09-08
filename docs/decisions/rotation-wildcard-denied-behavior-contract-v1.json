@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "contractId": "rotation-wildcard-denied-behavior-v1",
+  "categories": {
+    "fairnessBand": [
+      "src/lib/matchmaking.ts",
+      "src/store.ts"
+    ],
+    "probability": [
+      "src/lib/matchmaking.ts",
+      "src/lib/rotation-wildcard-release-authority.ts",
+      "src/lib/rotation-wildcard-release.ts",
+      "src/store.ts"
+    ],
+    "cooldown": [
+      "src/lib/app-data-normalization.ts",
+      "src/lib/csv.ts",
+      "src/lib/persistence.ts",
+      "src/lib/rotation-fairness.ts",
+      "src/store.ts",
+      "src/types.ts"
+    ],
+    "lineage": [
+      "src/lib/app-data-normalization.ts",
+      "src/lib/csv.ts",
+      "src/lib/matchmaking.ts",
+      "src/lib/rotation-chronology.ts",
+      "src/lib/rotation-wildcard-lineage.ts",
+      "src/store.ts",
+      "src/types.ts"
+    ],
+    "dataValidation": [
+      "src/lib/app-data-normalization.ts",
+      "src/lib/csv.ts",
+      "src/lib/persistence.ts",
+      "src/lib/rotation-wildcard-lineage.ts",
+      "src/types.ts"
+    ],
+    "uiScope": [
+      "src/App.vue",
+      "src/components/HistoryView.vue",
+      "src/components/LiveScoringFormatEditor.vue",
+      "src/components/MatchDisplay.vue",
+      "src/components/PlayerChip.vue",
+      "src/components/PlayersView.vue",
+      "src/components/PreviewView.vue",
+      "src/components/RecoveryView.vue",
+      "src/components/ScoreInput.vue",
+      "src/components/ScoringFormatPicker.vue",
+      "src/components/SessionView.vue",
+      "src/main.ts"
+    ]
+  },
+  "sources": [
+    {
+      "path": "src/App.vue",
+      "sha256": "81a713652016a06963f5585196b3fd2d6196f1d22bbd30bd06842770b3a87292"
+    },
+    {
+      "path": "src/components/HistoryView.vue",
+      "sha256": "a49d91f9e18a44d6d72b00775db0c4bb8c38ec1ea85a7a94e56556888d94039f"
+    },
+    {
+      "path": "src/components/LiveScoringFormatEditor.vue",
+      "sha256": "bb05632c3cf981ac7179cc841c381ccb913cf20f2848b6940873939f2ebb8963"
+    },
+    {
+      "path": "src/components/MatchDisplay.vue",
+      "sha256": "2a3af7c18f9950444862c5a39170e57ea31506f61eea030f462f0bf59e516269"
+    },
+    {
+      "path": "src/components/PlayerChip.vue",
+      "sha256": "dfdf648aaab6d17f30b33f02cf90f0fd33c044893fe33d8e9a5795775d5fb94c"
+    },
+    {
+      "path": "src/components/PlayersView.vue",
+      "sha256": "a9557b12fd44938f20051c979fd1ee268459d6a8e93ee784789289ae1a295c55"
+    },
+    {
+      "path": "src/components/PreviewView.vue",
+      "sha256": "3c34540040e7a8c9dd6096621db7f2ea5455a8007f8ef8a216c3fce68df5a10a"
+    },
+    {
+      "path": "src/components/RecoveryView.vue",
+      "sha256": "b3386055e73de080863d206a6f0e19a0aca3a092e425b93c2af538f64ffc6b2b"
+    },
+    {
+      "path": "src/components/ScoreInput.vue",
+      "sha256": "3d6b78dad8c68b379fb8ce4385dcfe677ea66e518b5947abde55a2060b748bf9"
+    },
+    {
+      "path": "src/components/ScoringFormatPicker.vue",
+      "sha256": "2c702eba5c7f17b1b2577bf4aba89e3537bb976be9f4c1298b3486e1f3b5e0dc"
+    },
+    {
+      "path": "src/components/SessionView.vue",
+      "sha256": "289a2e3f8a95e6c18c733f7d4fc02e9a1f7b4215876b62b74d7ab4c44eef2d4f"
+    },
+    {
+      "path": "src/lib/app-data-normalization.ts",
+      "sha256": "6204e78a1da0dfa9c86b675a0185b2ad15356a4cfecbd43ecb0c0d96a59df8d7"
+    },
+    {
+      "path": "src/lib/csv.ts",
+      "sha256": "678476829ed4ae0a09e1aea15e1085f0d16f53e2785e1d8e073c9feb347a6764"
+    },
+    {
+      "path": "src/lib/matchmaking.ts",
+      "sha256": "88486f5ecd52611460c751e8c171abc512ab10f97bee6738343c97dcc70c0c85"
+    },
+    {
+      "path": "src/lib/persistence.ts",
+      "sha256": "b9ff13c9f53cfbc9bd878352e45ee2b6fb0eb971addb1858c76bc62cf887862d"
+    },
+    {
+      "path": "src/lib/rotation-chronology.ts",
+      "sha256": "52bb64a9ade59bf7dcdfe0e077855483b9d4930a7300272ab7cf857cea9ceb08"
+    },
+    {
+      "path": "src/lib/rotation-fairness.ts",
+      "sha256": "b95f1327e4509e6578092dae23e0372c37d3bf5e04a3450440799f92f3663fbe"
+    },
+    {
+      "path": "src/lib/rotation-wildcard-lineage.ts",
+      "sha256": "e3dcc768c2e3197651c3468a830936c574e3b2929a444bae878535c5db1798c8"
+    },
+    {
+      "path": "src/lib/rotation-wildcard-release-authority.ts",
+      "sha256": "c34832302eb63dc4068739fcef91fc9f75a67b04c7c6e0e4e76cf10a97c51048"
+    },
+    {
+      "path": "src/lib/rotation-wildcard-release.ts",
+      "sha256": "e8e65a07d90152e3960dd158ee9904d2a439994a45f3a5a758ca5e4b2289fa14"
+    },
+    {
+      "path": "src/main.ts",
+      "sha256": "ee1e999c542d3b02379ffc6c5f8ae01ce8bbe3e77d8fbe276fa0404f83366c66"
+    },
+    {
+      "path": "src/store.ts",
+      "sha256": "7dbb7e646354a3cf2e3d321e2ef84df45d6e16b96b23edf8c41965c0f012d37a"
+    },
+    {
+      "path": "src/types.ts",
+      "sha256": "efb5657e84d571e79eb845182c65baecd88e4ad4404be0a39dcccefff34d007f"
+    }
+  ]
+}
