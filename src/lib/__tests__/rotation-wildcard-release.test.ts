@@ -6,9 +6,9 @@ import {
 } from '../rotation-wildcard-release'
 
 describe('rotation wildcard production release flag', () => {
-  it('keeps generation disabled in production without an approved manifest', () => {
-    expect(ROTATION_WILDCARD_GENERATION_RELEASED).toBe(false)
-    expect(rotationWildcardGenerationEnabled('production')).toBe(false)
+  it('enables generation in production under the exact 0.5 risk acceptance', () => {
+    expect(ROTATION_WILDCARD_GENERATION_RELEASED).toBe(true)
+    expect(rotationWildcardGenerationEnabled('production')).toBe(true)
   })
 
   it('keeps test and development paths available for acceptance before release', () => {

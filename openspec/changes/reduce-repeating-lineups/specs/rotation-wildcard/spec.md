@@ -245,6 +245,25 @@ CSV import MUST retain the existing full overwrite-restore semantics. Importing 
 - **WHEN** cooldown, completion sequence, high-water mark, or wildcard lineage in the selected backup is invalid
 - **THEN** import fails before replacing any local record and preserves the current local data unchanged
 
+### Requirement: Production wildcard generation requires narrow release authority
+Production wildcard generation MUST remain independent from fairness-band promotion evidence. It MAY be enabled at fixed band `0.5` only by the distinct evidence-bound risk-acceptance receipt that cites ArcherKuo message `1546861022458159164`, acknowledges the failed effect and fairness gates, and grants no authority to change probability, cooldown, lineage, data validation, UI visibility, or Rating behavior. The receipt and fixed verifier authority MUST bind one versioned explicit source allowlist for those denied behaviors; verification MUST recompute and reject missing, surplus, or byte-drifted paths. The ordinary passing-candidate approval path and no-receipt fail-closed fallback MUST remain available and distinct.
+
+#### Scenario: Exact scoped receipt is active
+- **WHEN** the build guard validates the exact `0.5` risk-acceptance receipt and production release flag
+- **THEN** existing wildcard generation is included while all other behavior in this specification remains unchanged
+
+#### Scenario: Receipt is absent, malformed, mismatched, or widened
+- **WHEN** the risk receipt is missing while release is true, differs from bound evidence/authority, selects another band, or grants any adjacent capability
+- **THEN** production build verification fails closed
+
+#### Scenario: Denied behavior source drifts
+- **WHEN** a pinned fairness-band, probability, cooldown, lineage, data-validation, or UI-scope source differs from the bound allowlist contract
+- **THEN** production build verification fails closed even if the receipt fields and bundle marker remain unchanged
+
+#### Scenario: Marker survives while generation is bypassed
+- **WHEN** an entrypoint-reachable production JavaScript chunk retains the release marker but actual built-app execution does not persist a valid one-seat wildcard for deterministic eligible doubles and singles fixtures
+- **THEN** production build verification fails closed
+
 ### Requirement: Rating and replay authority are unchanged
 Rotation wildcard state MUST NOT change Glicko inputs, Rating values, scoring-format snapshots, activity opening snapshots, historical Rating replay boundaries, or fairness-period lineage. A completed wildcard match MUST affect appearances and Rating exactly as the same final lineup created by unrestricted manual adjustment would.
 

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "selectedCandidateBand": 0.5,
+  "reportSha256": "877f11c0a4cf0b64a18054e478be75f72a9d1c25e9d478dc7c2ea6ab22187b8c",
+  "summarySha256": "f34bce0ed38430fdc60eb58b8c7fef316d3548f6075978f207e0139dd4771b44",
+  "approver": "ArcherKuo",
+  "sourceMessageId": "1546861022458159164",
+  "observedRelativeRepeatReduction": 0.24171979941345476,
+  "failedFairnessCells": 11,
+  "totalFairnessCells": 29,
+  "maxAppearanceShortfallP95": 3,
+  "maxNonVoluntaryRestIncreaseP95": 2,
+  "deniedBehaviorContractSha256": "2092dc39fe69837df9f3bc332197732d7c32afee503c0526e5c9bbc141451081",
+  "acknowledgesPromotionGateFailure": true,
+  "authorizesWildcardGeneration": true,
+  "authorizesFairnessBandChange": false,
+  "authorizesProbabilityChange": false,
+  "authorizesCooldownChange": false,
+  "authorizesLineageChange": false,
+  "authorizesDataValidationChange": false,
+  "authorizesUiScopeChange": false
+}

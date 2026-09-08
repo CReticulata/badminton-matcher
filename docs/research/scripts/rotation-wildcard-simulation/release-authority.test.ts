@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertCanonicalCandidateCellSets,
-  assertProductionBundleHasNoWildcardGenerator,
+  assertProductionBundleWildcardRelease,
   assertRotationWildcardReleaseAuthority,
   canonicalizeSliceRegressions,
   type ReleaseAuthorityInput,
@@ -123,10 +123,17 @@ describe('rotation wildcard release authority', () => {
   })
 
   it('rejects a production bundle containing the wildcard generation marker', () => {
-    expect(() => assertProductionBundleHasNoWildcardGenerator([
+    expect(() => assertProductionBundleWildcardRelease([
       'const value = "rotation-wildcard-generation-release-v1"',
     ])).toThrow(/production bundle/i)
-    expect(() => assertProductionBundleHasNoWildcardGenerator(['const value = "safe"'])).not.toThrow()
+    expect(() => assertProductionBundleWildcardRelease(['const value = "safe"'])).not.toThrow()
+  })
+
+  it('requires the wildcard generation marker in a released production bundle', () => {
+    expect(() => assertProductionBundleWildcardRelease(['const value = "safe"'], true)).toThrow(/missing/i)
+    expect(() => assertProductionBundleWildcardRelease([
+      'const value = "rotation-wildcard-generation-release-v1"',
+    ], true)).not.toThrow()
   })
 
   it('allows an absent approval only when 0.5 remains and production wildcard generation is disabled', () => {
@@ -154,6 +161,176 @@ describe('rotation wildcard release authority', () => {
         disclosedRegressions: ['fairness gate failed'],
       },
     })).toThrow(/did not pass/i)
+  })
+
+  const riskAccepted = (): ReleaseAuthorityInput => ({
+    ...base(),
+    productionWildcardReleased: true,
+    reportSha256: '877f11c0a4cf0b64a18054e478be75f72a9d1c25e9d478dc7c2ea6ab22187b8c',
+    summarySha256: 'f34bce0ed38430fdc60eb58b8c7fef316d3548f6075978f207e0139dd4771b44',
+    deniedBehaviorContractSha256: '2092dc39fe69837df9f3bc332197732d7c32afee503c0526e5c9bbc141451081',
+    candidates: [{
+      candidateBand: 0.5,
+      passesEffectGate: false,
+      passesEveryCellFairnessGate: false,
+      requiredDisclosedRegressions: [],
+      relativeRepeatReduction: 0.24171979941345476,
+      failedFairnessCells: 11,
+      totalFairnessCells: 29,
+      maxAppearanceShortfallP95: 3,
+      maxNonVoluntaryRestIncreaseP95: 2,
+    }],
+    riskAcceptanceManifest: {
+      schemaVersion: 2,
+      selectedCandidateBand: 0.5,
+      reportSha256: '877f11c0a4cf0b64a18054e478be75f72a9d1c25e9d478dc7c2ea6ab22187b8c',
+      summarySha256: 'f34bce0ed38430fdc60eb58b8c7fef316d3548f6075978f207e0139dd4771b44',
+      approver: 'ArcherKuo',
+      sourceMessageId: '1546861022458159164',
+      observedRelativeRepeatReduction: 0.24171979941345476,
+      failedFairnessCells: 11,
+      totalFairnessCells: 29,
+      maxAppearanceShortfallP95: 3,
+      maxNonVoluntaryRestIncreaseP95: 2,
+      deniedBehaviorContractSha256: '2092dc39fe69837df9f3bc332197732d7c32afee503c0526e5c9bbc141451081',
+      acknowledgesPromotionGateFailure: true,
+      authorizesWildcardGeneration: true,
+      authorizesFairnessBandChange: false,
+      authorizesProbabilityChange: false,
+      authorizesCooldownChange: false,
+      authorizesLineageChange: false,
+      authorizesDataValidationChange: false,
+      authorizesUiScopeChange: false,
+    },
+  })
+
+  it('accepts the exact owner risk acceptance for production wildcard at band 0.5', () => {
+    expect(() => assertRotationWildcardReleaseAuthority(riskAccepted())).not.toThrow()
+  })
+
+  it.each([
+    'authorizesFairnessBandChange',
+    'authorizesProbabilityChange',
+    'authorizesCooldownChange',
+    'authorizesLineageChange',
+    'authorizesDataValidationChange',
+    'authorizesUiScopeChange',
+  ] as const)('rejects widened adjacent authority in %s', (field) => {
+    const input = riskAccepted()
+    input.riskAcceptanceManifest = { ...input.riskAcceptanceManifest!, [field]: true }
+    expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow(/adjacent capability/i)
+  })
+
+  it.each([
+    [true, false],
+    [false, true],
+  ] as const)('rejects mixed promotion gates effect=%s fairness=%s', (
+    passesEffectGate,
+    passesEveryCellFairnessGate,
+  ) => {
+    const input = riskAccepted()
+    input.candidates = [{
+      ...input.candidates[0]!, passesEffectGate, passesEveryCellFairnessGate,
+    }]
+    expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow(/promotion-gate failure/i)
+  })
+
+  it('rejects a risk acceptance with a different approver or source message', () => {
+    for (const riskAcceptanceManifest of [
+      { ...riskAccepted().riskAcceptanceManifest!, approver: 'someone-else' },
+      { ...riskAccepted().riskAcceptanceManifest!, sourceMessageId: 'different-message' },
+    ]) {
+      expect(() => assertRotationWildcardReleaseAuthority({
+        ...riskAccepted(), riskAcceptanceManifest,
+      } as ReleaseAuthorityInput)).toThrow(/risk acceptance/i)
+    }
+  })
+
+  it('rejects self-consistent risk acceptance digests that are not the bound evidence', () => {
+    for (const field of ['reportSha256', 'summarySha256'] as const) {
+      const input = riskAccepted()
+      input[field] = 'a'.repeat(64)
+      input.riskAcceptanceManifest = {
+        ...input.riskAcceptanceManifest!,
+        [field]: input[field],
+      }
+      expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow(/digest/i)
+    }
+  })
+
+  it('rejects a self-consistent denied-behavior contract digest not pinned by verifier authority', () => {
+    const input = riskAccepted()
+    input.deniedBehaviorContractSha256 = 'a'.repeat(64)
+    input.riskAcceptanceManifest = {
+      ...input.riskAcceptanceManifest!,
+      deniedBehaviorContractSha256: input.deniedBehaviorContractSha256,
+    }
+    expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow(/contract digest/i)
+  })
+
+  it('fails closed for malformed, missing, mismatched, wrong-band, or widened risk acceptance', () => {
+    const missingField = riskAccepted()
+    delete (missingField.riskAcceptanceManifest as {
+      authorizesUiScopeChange?: false
+    }).authorizesUiScopeChange
+    const malformed = [
+      { ...riskAccepted(), riskAcceptanceManifest: 'invalid' },
+      { ...riskAccepted(), riskAcceptanceManifest: null },
+      missingField,
+      {
+        ...riskAccepted(),
+        approvalManifest: {
+          schemaVersion: 1,
+          selectedCandidateBand: 0.5,
+          reportSha256: 'report',
+          summarySha256: 'summary',
+          approver: 'ArcherKuo',
+          sourceMessageId: 'message',
+          disclosedRegressions: [],
+        },
+      },
+      {
+        ...riskAccepted(),
+        productionFairnessBand: 0.25,
+        riskAcceptanceManifest: {
+          ...riskAccepted().riskAcceptanceManifest!, selectedCandidateBand: 0.25,
+        },
+      },
+      {
+        ...riskAccepted(),
+        riskAcceptanceManifest: {
+          ...riskAccepted().riskAcceptanceManifest!, unexpected: false,
+        },
+      },
+      {
+        ...riskAccepted(),
+        riskAcceptanceManifest: {
+          ...riskAccepted().riskAcceptanceManifest!, authorizesProbabilityChange: true,
+        },
+      },
+      {
+        ...riskAccepted(),
+        riskAcceptanceManifest: {
+          ...riskAccepted().riskAcceptanceManifest!, acknowledgesPromotionGateFailure: false,
+        },
+      },
+      { ...riskAccepted(), productionWildcardReleased: false },
+      { ...riskAccepted(), candidates: [] },
+    ] as unknown as ReleaseAuthorityInput[]
+    for (const input of malformed) {
+      expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow()
+    }
+
+    for (const field of [
+      'observedRelativeRepeatReduction', 'failedFairnessCells', 'totalFairnessCells',
+      'maxAppearanceShortfallP95', 'maxNonVoluntaryRestIncreaseP95',
+    ] as const) {
+      const input = riskAccepted()
+      input.riskAcceptanceManifest = {
+        ...input.riskAcceptanceManifest!, [field]: input.riskAcceptanceManifest![field] + 1,
+      }
+      expect(() => assertRotationWildcardReleaseAuthority(input)).toThrow(/evidence mismatch|cell counts/i)
+    }
   })
 
   it('accepts only a passing candidate with exact evidence and production bindings', () => {

@@ -1,5 +1,5 @@
 /**
- * Production release authority. This remains false until a complete approval
- * manifest names a candidate that passed every representative promotion gate.
+ * Production release authority. The evidence-bound risk-acceptance receipt
+ * authorizes only the existing rotation wildcard at fairness band 0.5.
  */
-export const ROTATION_WILDCARD_GENERATION_RELEASED = false
+export const ROTATION_WILDCARD_GENERATION_RELEASED = true

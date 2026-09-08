@@ -4,10 +4,11 @@
 
 - Implementation：完成（純 transform、store、chronology、lineage、cooldown、normalization、localStorage、CSV、preview-only audit UI）。
 - Development／test acceptance：允許；用於驗證完整行為。
-- Production generation：**未發布**。
-- Production fairness band：`0.5` appearances/hour。
-- Approval manifest：不存在；2026-09-02 representative study沒有候選同時通過effect與每-cell fairness gates。
-- Release guard：無manifest時要求constant精確為`0.5`、`ROTATION_WILDCARD_GENERATION_RELEASED === false`，並驗證production bundle沒有`rotation-wildcard-generation-release-v1` marker；未來manifest的regression disclosures必須精確等於summary cells衍生的canonical清單。
+- Production generation：**已由窄化風險接受例外授權**。
+- Production fairness band：固定`0.5` appearances/hour。
+- Ordinary passing-candidate approval manifest：不存在；2026-09-02 representative study沒有候選同時通過effect與每-cell fairness gates。
+- Risk acceptance receipt：`docs/decisions/rotation-wildcard-05-risk-acceptance.json`；綁定ArcherKuo message `1546861022458159164`、原report／summary digests、24.17%重複率改善及11/29 fairness cells失敗。此project-maintained receipt不是使用者簽章，也不把failed evidence改寫成pass。
+- Release guard：只接受普通passing-candidate approval、精確的`0.5` risk acceptance或舊有no-manifest／unreleased fallback其中一條；拒絕兩種receipt並存、缺漏、malformed、digest／metrics／批准者／訊息不符、wrong band及任何相鄰authority擴張。released production bundle必須包含`rotation-wildcard-generation-release-v1` marker。
 
 ## 行為驗收矩陣
 
@@ -28,13 +29,13 @@
 
 ## Production release boundary
 
-`src/lib/rotation-wildcard-release-authority.ts`是唯一version-controlled release boolean authority。沒有一份有效manifest綁定通過門檻的candidate、report/summary digests、approver與source message時，該值必須維持`false`。`pnpm build`在Vite production build後執行：
+`src/lib/rotation-wildcard-release-authority.ts`是唯一version-controlled release boolean authority。一般路徑仍只接受通過全部門檻的approval manifest；本次另由`docs/decisions/rotation-wildcard-05-risk-acceptance.json`提供只限`0.5 + 既有外卡`的證據綁定風險例外。`pnpm build`在Vite production build後執行：
 
 1. production simulation import/artifact isolation verifier；
 2. fairness-band／approval authority verifier；
 3. production bundle wildcard-generation marker verifier。
 
-Dev/test mode保留generation path，只為pre-release acceptance；這不授權部署、archive、commit、push或PR。
+Dev/test mode仍保留同一路徑供acceptance；production source authority已開啟，但本決策與本次實作不授權部署、archive、commit、push或PR。
 
 ## Browser acceptance evidence
 

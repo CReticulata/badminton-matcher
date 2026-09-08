@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation; production generation withheld — representative study無合格候選，production維持`0.5`
+Accepted for production at fixed `0.5` by a narrow, evidence-bound owner risk acceptance; promotion study remains failed
 
 ## Context
 
@@ -31,8 +31,9 @@ Accepted for implementation; production generation withheld — representative s
 - production 公平帶不得由討論直覺或模擬程式自動選定。先以 `0、0.25、0.5、0.75、1、1.5、2、3、4、6、8` 場／小時執行 paired A/B/C/D 決定性模擬；其中 A 為現行 0.5／無外卡，B 為候選帶／無外卡，C 為 0.5／有外卡，D 為候選帶／有外卡。
 - 模擬涵蓋雙打 4–16 人、單打 2–10 人、出席變化、可變時長、混合模式、自願休息，以及等強、連續與極端 Rating 分布。主指標只比較已完成 actual playing set(t) 與 actual playing set(t−2)；normal proposal 與 t−2 actual 的相等只作 trigger fidelity 診斷。promotion 分母按每一個另有可換入者的回合判定，無 replacement capacity 的回合另列 no-op control。
 - Simulation cell 是模式／人數／出席型態／比賽時長型態／Rating 分布的完整組合；每個 promotion cell 使用同一組至少 500 個固定 seed，且每個 `(cell, seed)` 必須恰有 A/B/C/D 四個 counterpart。效果先在 seed 內算 eligible-opportunity actual repeat rate，再取 cell 內 seed 平均，最後各 cell 等權平均；D 必須相對 A 至少降低 25%。公平 gate 在每個 cell 內分別對 paired D−A maxima 使用無插值 nearest-rank p95，累積上場短缺與最長連續非自願休息各自都不得多於一場；任何 cell 失敗即拒絕。pooled／opportunity-weighted 結果只作 sensitivity，p99 與最壞案例只作揭露。
-- 只有同時通過所有門檻的候選可被推薦。即使通過，仍須建立版本控制的 machine-readable approval manifest，以報告與 summary 的精確 SHA-256 digest、核准值、human approver 與來源訊息身份綁定另一次產品所有者核准。build/release guard 必須重算 digest 並驗證 production constant；manifest 缺失或無效時只允許 `0.5`，任何不一致都 fail closed。輪替外卡可先在 `0.5` 下開發與測試，但依已定案的共同 release 邊界，不得在核准公平帶之前獨立發布。
-- 2026-09-02 representative study完成29個等權cells、每cell 500 paired seeds與638,000 primary rows。沒有候選同時通過效果與每-cell公平門檻，因此`recommendedCandidateBand = null`，不建立approval manifest。production constant保留`0.5`，`ROTATION_WILDCARD_GENERATION_RELEASED`保留false；build/release guard同時驗證authority狀態與production bundle不存在generation marker。dev/test可驗收完整能力，但這不構成production發布。
+- 只有同時通過所有門檻的候選可被普通promotion路徑推薦與核准。該V1 manifest仍須綁定報告／summary精確SHA-256、核准值、human approver、來源與canonical regressions。無任何release receipt時只允許`0.5 + generation false`。本次另外的risk-acceptance receipt不冒充passing approval，只以固定`0.5`、ArcherKuo message `1546861022458159164`、精確failed evidence與明示scope，單獨授權既有外卡generation；兩種receipt並存、欄位缺漏／不符、wrong band或相鄰authority擴張均fail closed。
+- 2026-09-02 representative study完成29個等權cells、每cell 500 paired seeds與638,000 primary rows。沒有候選同時通過效果與每-cell公平門檻，因此`recommendedCandidateBand = null`，歷史報告與普通passing-candidate approval路徑不變。
+- ArcherKuo 後續以 message `1546861022458159164` 明確接受一個窄化產品風險例外：只在固定`0.5`開放既有外卡。綁定證據顯示相對重複率改善`0.24171979941345476`（24.17%，未達25%），29個公平cells中11個失敗，最差cell p95累積上場短缺3、非自願連休增加2。獨立risk-acceptance receipt不聲稱gate通過，也不授權改公平帶、機率、冷卻、lineage、資料驗證或preview-only UI；build guard重算證據、驗證receipt與production constant／flag，並要求released bundle包含generation marker。
 
 ## Consequences
 
